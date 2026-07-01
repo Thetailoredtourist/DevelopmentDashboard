@@ -442,78 +442,14 @@ function detectPattern(spine,candidate){
   const spDiff=cur.metrics.sp-prev.metrics.sp;
   const aurDiff=cur.metrics.aur-prev.metrics.aur;
   const atvDiff=cur.metrics.atv-prev.metrics.atv;
-  if(spDiff>5||aurDiff>200||atvDiff>300){
+  if(spDiff>2||aurDiff>75||atvDiff>100){
     return{type:"success",candidate:candidate.name,directive:prev.directive||"",focus:prev.focus||"",spDiff,aurDiff,atvDiff,date:cur.date};
   }
-  if(spDiff<-10){
+  if(spDiff<-3){
     return{type:"regression",candidate:candidate.name,directive:prev.directive||"",focus:prev.focus||"",spDiff,date:cur.date};
   }
   return null;
 }
-
-const generateCoaching=(c,ledger)=>{
-  const w=c.acc;
-  // Performance chain diagnosis, mapped to the Integrated Elite Playbook modules
-  let chainBreak="";let chainDetail="";let drill="";let module="";let coachNote="";
-  if(w.sp<-20&&w.vs<15){
-    chainBreak="Reach and Enrolment";
-    chainDetail="Guests are not being enrolled. The transition from gift collection to brand conversation is not happening, or floor presence is too passive. Traffic is not being created, so leads never reach the close.";
-    drill="The Two-Question Doorway: open every guest with one warm question and one taste question before any product. Run the Enrolment Formula on five guests per event.";
-    module="Guest Enrolment and Relationship Selling";
-    coachNote="Run the One-minute mandate and the 30-Second Value Bridge daily until enrolment becomes automatic. Watch for warmth balanced with competence.";
-  }
-  else if(w.aur>2500&&w.sp<0){
-    chainBreak="Closing and Conversion Mechanics";
-    chainDetail="Higher-value pieces are being shown (AUR $"+w.aur+") but the sale is not landing. Value is built without guiding the guest to action. The close or the follow-up is where the revenue is lost.";
-    drill="No-Apology Price Line: state the price after the value build, then hold silence. Practice the Mic Conversion Sequence and the CTA standard with a clear single ask.";
-    module="Selling From the Mic and Conversion Mechanics";
-    coachNote="Coach the Flip Technique for resistance and the Three Second Crown Pause before price. The presence is there, the ask is not.";
-  }
-  else if(w.aur<1800&&w.sp>-10){
-    chainBreak="Product Story and Premium Anchoring";
-    chainDetail="Transactions are happening but at low value (AUR $"+w.aur+"). The candidate is selling without building desire for premium pieces. The product story around craftsmanship, color, and meaning needs work.";
-    drill="Premium Anchor Rep: open with a higher-value focus piece and run the Product Story Formula, explaining design meaning before any price or promotion.";
-    module="Product Intelligence and The Vault";
-    coachNote="Drill the Story Words Library and Good, Better, Best curation. Anchor high, let the story carry the value before the number.";
-  }
-  else if(w.atv<2500&&w.aur>1800){
-    chainBreak="Set-Building and Occasion Discovery";
-    chainDetail="Guests are buying single items (ATV $"+w.atv+" against AUR $"+w.aur+"). Pieces are not being paired and occasion discovery is not expanding the sale.";
-    drill="Complete The Story: pair every hero piece with a companion using occasion and collection logic. Target two-piece presentations on every private buyer.";
-    module="Guest Enrolment and Relationship Selling";
-    coachNote="Use Reflect and Label to surface the occasion, then build the set around it. Discovery first, pairing second.";
-  }
-  else if(w.sp>=20&&w.vs>15){
-    chainBreak="Replication and Raising the Ceiling";
-    chainDetail="Sales are landing at +"+w.sp.toFixed(0)+"% vs budget with "+w.vs.toFixed(0)+"% voyage share. The behaviors are producing results. Focus now shifts to consistency, documenting what works, and lifting the team.";
-    drill="Document and teach: capture this Ambassador's enrolment and close, then run a team rep where they lead. Move toward the next Certification level.";
-    module="Certification Pathway and Coaching Rhythm";
-    coachNote="Protect what is working and replicate it. Use this Ambassador as a Wiring the Ship and event leadership example for the fleet.";
-  }
-  else if(w.sp>0){
-    chainBreak="Price Confidence and Voice of Luxury";
-    chainDetail="In positive territory but not yet commanding. AUR $"+w.aur+" and ATV $"+w.atv+" show sales are happening without confident premium presentation. The value story or price delivery needs strengthening.";
-    drill="Panther Pace and the Three Second Crown Pause: slow the delivery, pause before price, end sentences with certainty. Repeat a price line five times with a held pause.";
-    module="Voice of Luxury and Speech Clarity";
-    coachNote="Coach calm authority over volume. The numbers are positive, the conviction in the delivery is the next gear.";
-  }
-  else{
-    chainBreak="Momentum and Traffic Generation";
-    chainDetail="Sales vs budget at "+w.sp.toFixed(0)+"% with voyage share "+w.vs.toFixed(0)+"%. Guests are being engaged but not converting. Either traffic, follow-up discipline, or closing confidence is the gap.";
-    drill="Embarkation and Amulets momentum play: drive qualified traffic from day one, then convert with the Three-Touchpoint Guest Flow across the voyage.";
-    module="Momentum Drivers and Traffic Generation";
-    coachNote="Rebuild the cruise journey timing first. Traffic and momentum early in the voyage create the leads the close depends on.";
-  }
-
-  // Check ledger for what has worked with similar profiles
-  let proven="";
-  if(ledger&&Array.isArray(ledger.successes)&&ledger.successes.length>0){
-    const relevant=ledger.successes.filter(s=>s.focus&&(s.spDiff>5||s.aurDiff>200)).slice(-3);
-    if(relevant.length>0){proven=`Proven from the fleet: "${relevant[0].directive}" moved Sales by +${relevant[0].spDiff.toFixed(0)}% for ${relevant[0].candidate}. Coach to the ${module} module.`;}
-  }
-
-  return{chainBreak,chainDetail,drill,proven,module,coachNote};
-};
 
 async function callDashbot(c,notes,rpNotes,spine,ledger){
   const tm=tierMeta[c.tier];
@@ -523,7 +459,7 @@ async function callDashbot(c,notes,rpNotes,spine,ledger){
   const ledgerText=ledger&&Array.isArray(ledger.successes)&&ledger.successes.length>0?`\n\nORGANIZATIONAL LEARNING (proven interventions from the fleet that moved metrics):\n${ledger.successes.slice(-5).map(s=>`[${s.date}] ${s.candidate}: "${s.directive}" moved Sales by ${s.spDiff>0?"+":""}${s.spDiff.toFixed(0)}%, AUR by ${s.aurDiff>0?"+$":"$"}${s.aurDiff} (Focus was: ${s.focus})`).join("\n")}${Array.isArray(ledger.patterns)&&ledger.patterns.length>0?`\n\nWARNING PATTERNS (interventions that did not move metrics):\n${ledger.patterns.slice(-3).map(p=>`[${p.date}] ${p.candidate}: "${p.directive}" resulted in Sales ${p.spDiff>0?"+":""}${p.spDiff.toFixed(0)}%`).join("\n")}`:""}`:"";
   const monthlyText=c.monthly?`\n\nMONTHLY AVERAGES (full period):\n${Object.entries(c.monthly).map(([m,d])=>`${m}: Sales ${d.sp>0?"+":""}${d.sp}%, VoyShare ${d.vs}%, AUR $${d.aur}, ATV $${d.atv}, Units ${d.u}, Voyages: ${d.n}`).join("\n")}`:"";
   const monthKeys=c.monthly?Object.keys(c.monthly):[];
-  const threeMonthText=monthKeys.length>=3?(()=>{const recent3=monthKeys.slice(-3);const m1=c.monthly[recent3[0]],m2=c.monthly[recent3[1]],m3=c.monthly[recent3[2]];return`\n\n3-MONTH DEVELOPMENT WINDOW (${recent3.join(" > ")}):\n  Sales trend: ${m1.sp>0?"+":""}${m1.sp}% > ${m2.sp>0?"+":""}${m2.sp}% > ${m3.sp>0?"+":""}${m3.sp}%\n  AUR trend: $${m1.aur} > $${m2.aur} > $${m3.aur}\n  ATV trend: $${m1.atv} > $${m2.atv} > $${m3.atv}\n  VoyShare trend: ${m1.vs}% > ${m2.vs}% > ${m3.vs}%\n  Units trend: ${m1.u} > ${m2.u} > ${m3.u}\n  Direction: ${m3.sp>m1.sp?"Upward over 3 months":m3.sp<m1.sp?"Downward over 3 months":"Flat over 3 months"}`;})():monthKeys.length===2?(()=>{const m1=c.monthly[monthKeys[0]],m2=c.monthly[monthKeys[1]];return`\n\n2-MONTH WINDOW (${monthKeys.join(" > ")}):\n  Sales: ${m1.sp>0?"+":""}${m1.sp}% > ${m2.sp>0?"+":""}${m2.sp}%\n  AUR: $${m1.aur} > $${m2.aur}\n  ATV: $${m1.atv} > $${m2.atv}`;})():"";
+  const threeMonthText=monthKeys.length>=3?(()=>{const recent3=monthKeys.slice(-3);const m1=c.monthly[recent3[0]],m2=c.monthly[recent3[1]],m3=c.monthly[recent3[2]];return`\n\nLATEST MONTH FOCUS with recent trend for context only (${recent3.join(" > ")}). Coach to the most recent month and its per-voyage movement:\n  Sales trend: ${m1.sp>0?"+":""}${m1.sp}% > ${m2.sp>0?"+":""}${m2.sp}% > ${m3.sp>0?"+":""}${m3.sp}%\n  AUR trend: $${m1.aur} > $${m2.aur} > $${m3.aur}\n  ATV trend: $${m1.atv} > $${m2.atv} > $${m3.atv}\n  VoyShare trend: ${m1.vs}% > ${m2.vs}% > ${m3.vs}%\n  Units trend: ${m1.u} > ${m2.u} > ${m3.u}\n  Direction: ${m3.sp>m1.sp?"Upward over 3 months":m3.sp<m1.sp?"Downward over 3 months":"Flat over 3 months"}`;})():monthKeys.length===2?(()=>{const m1=c.monthly[monthKeys[0]],m2=c.monthly[monthKeys[1]];return`\n\n2-MONTH WINDOW (${monthKeys.join(" > ")}):\n  Sales: ${m1.sp>0?"+":""}${m1.sp}% > ${m2.sp>0?"+":""}${m2.sp}%\n  AUR: $${m1.aur} > $${m2.aur}\n  ATV: $${m1.atv} > $${m2.atv}`;})():"";
   const recentSpine=spine&&spine.length>0?`\n\nDEVELOPMENT SPINE (${spine.length} previous coaching entries, most recent last):\n${spine.slice(-5).map((s,i)=>`--- Entry ${i+1} [${s.date}] ---\nMetrics at time: Sales ${s.metrics?.sp||"n/a"}%, AUR $${s.metrics?.aur||"n/a"}, ATV $${s.metrics?.atv||"n/a"}\nDevelopment Focus: ${s.focus||"Not recorded"}\nDirective Given: ${s.directive||"Not recorded"}\nCoaching:\n${s.feedback}`).join("\n\n")}`:"";
   const spineCount=spine?spine.length:0;
   const prompt=`You are the EFFY Ambassador Coaching OS. You turn KPI data, field observations, candidate history, and ship context into precise luxury jewelry coaching that improves revenue, guest experience, Ambassador behavior, and talent readiness.
@@ -546,16 +482,16 @@ KPI-TO-BEHAVIOR DIAGNOSTIC:
 . Declining trajectory = either discipline breakdown or confidence erosion. Check field notes for behavioral evidence.
 . Improving trajectory = behavior is forming. Name what changed and compound it.
 
-FIELD DRILL REFERENCE (assign one when relevant):
-. 30-Second Value Bridge: after gift handoff, one brand value statement, one discovery question, one invitation. Proof: lead count.
-. Premium Anchor Rep: open with higher-value piece, explain design meaning before price. Proof: AUR movement.
-. Complete The Story: pair hero item with companion using occasion logic. Proof: UPT, ATV.
-. Panther Pace Recording: 90 seconds at 10% slower pace, 3 pauses, downward endings, clear CTA. Proof: event attendance.
-. Five Meaningful Approaches: leader observes 5 guest approaches, scores opener/bridge/discovery/invitation. Proof: daily transactions.
-. No-Apology Price Line: state price after value build with silence, not discount language. Proof: AUR, high-ticket attempts.
+PRACTICAL COACHING ACTIONS (draw on these, and always describe the step itself in your output, never the method name):
+. After the gift handoff: give one brand value statement, ask one discovery question, extend one invitation. Proof: lead count.
+. Open with a higher-value piece and explain its design meaning before stating price. Proof: AUR movement.
+. Pair the main piece with a companion piece using the guest's occasion. Proof: UPT, ATV.
+. Record 90 seconds of delivery at a 10 percent slower pace, with three pauses, downward sentence endings, and one clear ask. Proof: event attendance.
+. Have the leader watch five guest approaches and score the opener, the bridge, the discovery question, and the invitation. Proof: daily transactions.
+. State the price after building value, then hold silence, with no discount language. Proof: AUR, high-ticket attempts.
 
-EFFY INTEGRATED ELITE PLAYBOOK MODULES (anchor every directive to one of these by name, using EFFY's own terms):
-The Ambassador Mandate; Luxury Identity, Personal Brand and Gravitas (Panther Pace, Three Second Crown Pause); Guest Enrolment and Relationship Selling (Enrolment Formula, Two-Question Doorway, Reflect and Label); Product Intelligence and The Vault (Product Story Formula, Story Words Library, Good Better Best); Voice of Luxury and Speech Clarity; Mic Presence and Stage Control; Event Architecture and Flow; Event Preparation and Focus Pieces; Selling From the Mic and Conversion Mechanics (Mic Conversion Sequence, CTA standards); Marketing vs Promotion; Momentum Drivers and Traffic Generation (Embarkation and Amulets, Three-Touchpoint Guest Flow); Cruise Journey Planning and Story Flow; Kick-Off Meetings and Team Deployment; Wiring the Ship and Stakeholder Influence; Objection Handling and Resistance Conversion (the Flip Technique); Revenue Intelligence and Performance Rhythm; Certification Pathway and Coaching Rhythm.
+EFFY PLAYBOOK ACTIONS (these inform your coaching, but in your output always describe the practical observable step itself, never the method name, so any EFFY coach can run the session directly):
+The Ambassador Role; Personal Presence and Presentation; Engaging Guests and Building Relationships; Product Knowledge; Speaking Clearly and with Confidence; Presenting on the Microphone; Planning and Running Events; Preparing for Events; Selling and Closing the Sale; Marketing and Promotion; Driving Traffic and Momentum; Planning Across the Voyage; Team Kick-Off and Deployment; Building Relationships Across the Ship; Handling Objections; Tracking Performance and Revenue; Coaching and Development.
 
 READINESS LEVELS (reference when assessing development phase):
 0-Emerging: potential visible, fundamentals inconsistent. 1-Reliable: baseline stable, improving discipline. 2-High-Potential: strong behaviors but inconsistent across contexts. 3-Ambassador-Ready: sustains luxury presence, enrolment, event ability, measurable KPI contribution. 4-Ship Impact: influences ship performance, models behavior. 5-Fleet Standard-Setter: creates repeatable results strong enough for fleet modules.
@@ -568,7 +504,7 @@ ANTI-PATTERNS (never do these):
 . Letting VIP success hide weak non-VIP fundamentals
 
 CANDIDATE: ${c.name}
-STATUS: ${c.status} | TIER: ${tm.label} | MODULE: ${c.module}
+STATUS: ${c.status} | TIER: ${tm.label}
 COACHING ENTRY: #${spineCount+1}
 
 PERFORMANCE DATA:
@@ -580,7 +516,7 @@ PERFORMANCE DATA:
 YOUR RESPONSE MUST FOLLOW THIS EXACT STRUCTURE (use these exact headers, no asterisks, no bold markers, no repetition between sections):
 
 DEVELOPMENT FOCUS:
-(State the candidate's readiness level 0-5 in the opening line. Then name the ONE skill or behavior to develop now. Ground it in the 3-month data window: reference specific voyage numbers and monthly shifts that reveal the pattern. ${spineCount>0?"Reference how this has shifted since your last entry. If the previous focus was the same, explain why it remains the priority. If it changed, name what shifted.":"This is the first entry. Establish the baseline read."})
+(State the candidate's readiness level 0-5 in the opening line. Then name the ONE skill or behavior to develop now. Ground it in the most recent month's per-voyage performance and the shift from the prior month: reference specific voyage numbers that reveal the pattern. ${spineCount>0?"Reference how this has shifted since your last entry. If the previous focus was the same, explain why it remains the priority. If it changed, name what shifted.":"This is the first entry. Establish the baseline read."})
 
 ROOT CAUSE:
 (Name the specific behavior creating the metric pattern. Use the performance chain to identify which link is breaking. Reference the data once, do not repeat what was said in Development Focus. State confidence level: High, Medium, or Low. ${spineCount>0?`Your last directive was: "${spine[spine.length-1]?.directive||"see previous entry"}". State whether the data shows the candidate acted on it.`:""})
@@ -589,7 +525,7 @@ DIRECTIVE:
 (One specific, observable, measurable action for the next 7 days. Name who does what, when, and how it gets recorded. ${spineCount>0?"This must build on or escalate from the previous directive, not repeat it.":""})
 
 FIELD DRILL:
-(Assign one drill from the reference library or create a custom one. Name it, describe execution in one sentence. State the proof metric and the 30-day target that shows sustained progress.)
+(Describe the exact practical action the ambassador performs, in plain steps a coach can run without knowing any method name. State the proof metric and a 30-day target that shows sustained progress.)
 
 POWERFUL QUESTION:
 (One question for in-person coaching that creates ownership. Not a yes or no.)
@@ -599,23 +535,24 @@ RULES:
 . Never use em dashes. Use periods, commas, colons.
 . Never use asterisks or bold markers.
 . Do not repeat data points across sections. State a fact once in the section where it matters most.
-. Use plain language. No jargon the candidate would not understand on the shop floor.
+. Use plain language. Never name a method or technique (for example never write "crown pause" or "two question doorway"). Always state the practical physical or verbal step itself, so any coach can run it without knowing the method name.
 . Every sentence connects a behavior to a number to a next step.
-. Ground your read in at least 3 months of context when available.
+. Coach on a monthly cycle for rapid development inside a six-month contract. Ground your read in the most recent month's per-voyage performance and the change from the prior month.
 . The Ambassador represents luxury before product: presence before pitch, trust before transaction, meaning before price.`;
   try{
     const r=await fetch("/api/coaching",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({max_tokens:1500,messages:[{role:"user",content:prompt}]})});
-    const d=await r.json();
-    const text=d.content?.map(i=>i.type==="text"?i.text:"").filter(Boolean).join("\n")||"";
-    if(!text)return{text:"Unable to generate feedback.",focus:"",directive:"",phase:"",rootCause:"",drill:""};
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok||(d&&d.error)){return{ok:false,text:"Coaching service error: "+((d&&d.error)||("HTTP "+r.status))+". Check that the coaching API key is configured.",focus:"",directive:"",phase:"",rootCause:"",drill:"",question:""};}
+    const text=d.content?.map(i=>i&&i.text?i.text:"").filter(Boolean).join("\n")||"";
+    if(!text)return{ok:false,text:"Unable to generate feedback. The coaching service returned an empty response.",focus:"",directive:"",phase:"",rootCause:"",drill:"",question:""};
     const focusMatch=text.match(/DEVELOPMENT FOCUS:\s*\n?([\s\S]*?)(?=\nROOT CAUSE:|\n\nROOT CAUSE:)/);
     const rootMatch=text.match(/ROOT CAUSE:\s*\n?([\s\S]*?)(?=\nDIRECTIVE:|\n\nDIRECTIVE:)/);
     const directiveMatch=text.match(/DIRECTIVE:\s*\n?([\s\S]*?)(?=\nFIELD DRILL:|\n\nFIELD DRILL:)/);
     const drillMatch=text.match(/FIELD DRILL:\s*\n?([\s\S]*?)(?=\nPOWERFUL QUESTION:|\n\nPOWERFUL QUESTION:)/);
     const questionMatch=text.match(/POWERFUL QUESTION:\s*\n?([\s\S]*?)$/);
     const phaseLineMatch=text.match(/(?:Level|Readiness)\s*(\d)/);
-    return{text,focus:focusMatch?focusMatch[1].trim():"",directive:directiveMatch?directiveMatch[1].trim():"",phase:phaseLineMatch?`Level ${phaseLineMatch[1]}`:"",rootCause:rootMatch?rootMatch[1].trim():"",drill:drillMatch?drillMatch[1].trim():"",question:questionMatch?questionMatch[1].trim():""};
-  }catch{return{text:"Connection error. Retry.",focus:"",directive:"",phase:"",rootCause:"",drill:"",question:""};}
+    return{text,focus:focusMatch?focusMatch[1].trim():"",directive:directiveMatch?directiveMatch[1].trim():"",phase:phaseLineMatch?`Level ${phaseLineMatch[1]}`:"",rootCause:rootMatch?rootMatch[1].trim():"",drill:drillMatch?drillMatch[1].trim():"",question:questionMatch?questionMatch[1].trim():"",ok:true};
+  }catch{return{ok:false,text:"Connection error. Could not reach the coaching service. Retry.",focus:"",directive:"",phase:"",rootCause:"",drill:"",question:""};}
 }
 
 async function loadNotes(name){try{const r=await storage.get(`fb:${name.replace(/\s+/g,"_")}`);return r?JSON.parse(r.value):[];}catch{return[];}}
@@ -653,7 +590,7 @@ function GroupCoachingPanel({list,title,color,onSelect}){
 function OutputLab({pool,ledger}){
   const[modules,setModules]=useState([]);
   const[loading,setLoading]=useState(false);
-  const SECTIONS=["The Ambassador Mandate","Luxury Identity, Personal Brand and Gravitas","Guest Enrolment and Relationship Selling","Product Intelligence and The Vault","Voice of Luxury and Speech Clarity","Mic Presence and Stage Control","Event Architecture and Flow","Event Preparation and Focus Pieces","Selling From the Mic and Conversion Mechanics","Marketing vs Promotion","Momentum Drivers and Traffic Generation","Cruise Journey Planning and Story Flow","Kick-Off Meetings and Team Deployment","Wiring the Ship and Stakeholder Influence","Objection Handling and Resistance Conversion","Revenue Intelligence and Performance Rhythm","Certification Pathway and Coaching Rhythm"];
+  const SECTIONS=["The Ambassador Role","Personal Presence and Presentation","Engaging Guests and Building Relationships","Product Knowledge","Speaking Clearly and with Confidence","Presenting on the Microphone","Planning and Running Events","Preparing for Events","Selling and Closing the Sale","Marketing and Promotion","Driving Traffic and Momentum","Planning Across the Voyage","Team Kick-Off and Deployment","Building Relationships Across the Ship","Handling Objections","Tracking Performance and Revenue","Coaching and Development"];
 
   useEffect(()=>{(async()=>{try{const r=await storage.get("output_lab_modules");if(r&&r.value){setModules(JSON.parse(r.value));}}catch{}})();},[]);
 
@@ -674,7 +611,7 @@ function OutputLab({pool,ledger}){
 
 THE PLAYBOOK SPINE (your section headings are these existing modules): ${SECTIONS.join(", ")}.
 
-These modules already teach: the Ambassador Mandate, Gravitas and Panther Pace, the Enrolment Formula and Two-Question Doorway, the Product Story Formula and Story Words Library, Voice of Luxury, Mic Presence, Event Architecture, Focus Pieces, the Mic Conversion Sequence and CTA standards, Marketing vs Promotion, Momentum and Amulets, Cruise Journey timing, Kick-Off deployment, Wiring the Ship, the Flip Technique for objections, Revenue Intelligence, and the Certification Pathway. Use this nomenclature exactly. Do not invent new frameworks; extend the existing ones with content drawn from what the coaching signals show.
+Build each module around practical, observable steps that a coach and an ambassador can run on the floor, never branded method names. Describe the exact action to take, not a technique title. Do not invent new frameworks: extend the existing module areas with content drawn from what the coaching signals show.
 
 FLEET SNAPSHOT: ${fleetStats.total} ambassadors, average Sales Vs Budget ${fleetStats.avgSP}%, ${fleetStats.stars} Superstars, ${fleetStats.critical} Critical.
 
@@ -831,7 +768,7 @@ export default function ADP(){
   const[notes,setNotes]=useState([]);const[noteText,setNoteText]=useState("");
   const[rpEntries,setRpEntries]=useState([]);const[rpText,setRpText]=useState("");const[rpScore,setRpScore]=useState(5);
   const[coaching,setCoaching]=useState("");const[cLoading,setCLoading]=useState(false);
-  const[spine,setSpine]=useState([]);
+  const[spine,setSpine]=useState([]);const[fbSaved,setFbSaved]=useState(false);
   const[editIdx,setEditIdx]=useState(null);const[editType,setEditType]=useState(null);const[editText,setEditText]=useState("");const[editScore,setEditScore]=useState(5);
   const[expandedEntry,setExpandedEntry]=useState(null);
   const[profileTab,setProfileTab]=useState("overview");
@@ -868,8 +805,8 @@ export default function ADP(){
 
   useEffect(()=>{loadOverrides().then(o=>setStatusOverrides(o));loadLedger().then(l=>setLedger(l));},[]);
   const getStatus=(c)=>statusOverrides[c.name]!==undefined?statusOverrides[c.name]:c.status;
-  const stateOf=(c)=>{const ov=statusOverrides[c.name];if(ov==="Active")return"active";if(ov==="Not Active")return"grey";return lifecycleOf(c);};
-  const toggleStatus=async(c)=>{const cur=getStatus(c);const next=cur==="Active"?"Not Active":"Active";const upd={...statusOverrides,[c.name]:next};setStatusOverrides(upd);await saveOverrides(upd);};
+  const stateOf=(c)=>{const ov=statusOverrides[c.name];if(ov==="Active")return"active";if(ov==="Not Active")return"grey";if(ov==="Development")return"development";return lifecycleOf(c);};
+  const toggleStatus=async(c)=>{const cur=getStatus(c);const next=cur==="Active"?"Not Active":cur==="Not Active"?"Development":"Active";const upd={...statusOverrides,[c.name]:next};setStatusOverrides(upd);await saveOverrides(upd);};
 
   const org=orgs[activeOrg];
   const pool=useMemo(()=>candidateData.filter(org.filter),[activeOrg,candidateData]);
@@ -890,14 +827,14 @@ export default function ADP(){
   const filtered=useMemo(()=>{let l=[...listPool];if(tierFilter!=="all")l=l.filter(c=>c.tier===tierFilter);if(search)l=l.filter(c=>c.name.toLowerCase().includes(search.toLowerCase()));l.sort((a,b)=>sortDir==="desc"?getSortVal(b)-getSortVal(a):getSortVal(a)-getSortVal(b));return l;},[tierFilter,search,sortKey,sortDir,activeOrg,rosterView,pool,listPool,statusOverrides]);
   const profilePool=useMemo(()=>{let l=[...pool];if(tierFilter!=="all")l=l.filter(c=>c.tier===tierFilter);l.sort((a,b)=>sortDir==="desc"?getSortVal(b)-getSortVal(a):getSortVal(a)-getSortVal(b));return l;},[pool,tierFilter,sortKey,sortDir]);
 
-  useEffect(()=>{if(selected){loadNotes(selected.name).then(n=>setNotes(n));loadRP(selected.name).then(r=>setRpEntries(r));loadSpine(selected.name).then(s=>setSpine(s));setCoaching("");setNoteText("");setRpText("");setRpScore(5);setProfileTab("overview");}},[selected?.name]);
+  useEffect(()=>{if(selected){loadNotes(selected.name).then(n=>setNotes(n));loadRP(selected.name).then(r=>setRpEntries(r));loadSpine(selected.name).then(s=>setSpine(s));setCoaching("");setFbSaved(false);setNoteText("");setRpText("");setRpScore(5);setProfileTab("overview");}},[selected?.name]);
   const openProfile=useCallback((c)=>{setSelected(c);setGroupView(null);setProfileOrigin(tab);},[tab]);
   const closeProfile=useCallback(()=>{setSelected(null);setTab(profileOrigin);},[profileOrigin]);
   const navProfile=(dir)=>{if(!selected)return;const idx=profilePool.findIndex(c=>c.name===selected.name);const next=idx+dir;if(next>=0&&next<profilePool.length)setSelected(profilePool[next]);};
   const selIdx=selected?profilePool.findIndex(c=>c.name===selected.name):-1;
   const addNote=async()=>{if(!noteText.trim())return;const entry={text:noteText.trim(),date:new Date().toISOString().slice(0,10)};const updated=[...notes,entry];setNotes(updated);await saveNotes(selected.name,updated);setNoteText("");};
   const addRP=async()=>{if(!rpText.trim())return;const entry={text:rpText.trim(),date:new Date().toISOString().slice(0,10),score:rpScore};const updated=[...rpEntries,entry];setRpEntries(updated);await saveRP(selected.name,updated);setRpText("");setRpScore(5);};
-  const runFeedback=async()=>{setCLoading(true);setCoaching("");const r=await callDashbot(selected,notes,rpEntries,spine,ledger);const feedbackText=typeof r==="string"?r:r.text;setCoaching(feedbackText);if(feedbackText&&!feedbackText.startsWith("Connection")&&!feedbackText.startsWith("Unable")){const entry={date:new Date().toISOString().slice(0,10),feedback:feedbackText,focus:r.focus||"",directive:r.directive||"",phase:r.phase||"",rootCause:r.rootCause||"",drill:r.drill||"",question:r.question||"",metrics:{sp:selected.acc.sp,vs:selected.acc.vs,aur:selected.acc.aur,atv:selected.acc.atv},tier:selected.tier,notesCount:notes.length,rpCount:rpEntries.length};const updated=[...spine,entry];setSpine(updated);await saveSpine(selected.name,updated);const pattern=detectPattern(updated,selected);if(pattern){const updLedger={...ledger};if(pattern.type==="success"){updLedger.successes=[...updLedger.successes.slice(-20),pattern];}else{updLedger.patterns=[...updLedger.patterns.slice(-20),pattern];}setLedger(updLedger);await saveLedger(updLedger);}}setCLoading(false);};
+  const runFeedback=async()=>{setCLoading(true);setCoaching("");setFbSaved(false);const r=await callDashbot(selected,notes,rpEntries,spine,ledger);const feedbackText=typeof r==="string"?r:r.text;setCoaching(feedbackText);const ok=(r&&typeof r==="object"&&r.ok)||(feedbackText&&!feedbackText.startsWith("Connection")&&!feedbackText.startsWith("Unable")&&!feedbackText.startsWith("Coaching service")&&!feedbackText.startsWith("Could not"));if(ok&&feedbackText){setFbSaved(true);const entry={date:new Date().toISOString().slice(0,10),feedback:feedbackText,focus:r.focus||"",directive:r.directive||"",phase:r.phase||"",rootCause:r.rootCause||"",drill:r.drill||"",question:r.question||"",metrics:{sp:selected.acc.sp,vs:selected.acc.vs,aur:selected.acc.aur,atv:selected.acc.atv},tier:selected.tier,notesCount:notes.length,rpCount:rpEntries.length};const updated=[...spine,entry];setSpine(updated);await saveSpine(selected.name,updated);const pattern=detectPattern(updated,selected);if(pattern){const updLedger={...ledger};if(pattern.type==="success"){updLedger.successes=[...updLedger.successes.slice(-20),pattern];}else{updLedger.patterns=[...updLedger.patterns.slice(-20),pattern];}setLedger(updLedger);await saveLedger(updLedger);}}setCLoading(false);};
 
   const sec={fontSize:10,letterSpacing:2,color:C.teal,fontWeight:700,marginBottom:12,textTransform:"uppercase"};
   const tabs=[{id:"command",label:"Overview"},{id:"roster",label:"Performance"},{id:"coaching",label:"Analytics"},{id:"pipeline",label:"Development"}];
@@ -924,7 +861,7 @@ export default function ADP(){
   };
   // Full KPI set for roster: sd, sp, aur, tr, u, upt
   const renderProfile=()=>{
-    const c=selected;const tm=tierMeta[c.tier];const ins=generateCoaching(c,ledger);const cStatus=getStatus(c);
+    const c=selected;const tm=tierMeta[c.tier];const cStatus=getStatus(c);
     return(<div style={{animation:"fadeUp 0.35s ease"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
@@ -937,7 +874,7 @@ export default function ADP(){
       {/* Profile Header */}
       <Card accentColor={tm.color} style={{padding:24,marginBottom:14}}>
         <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
-          <div><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={{fontSize:9,letterSpacing:2.5,color:tm.color,fontWeight:700}}>{tm.icon} {tm.label}</span><button onClick={()=>toggleStatus(c)} style={{fontSize:8,padding:"2px 8px",borderRadius:4,background:cStatus==="Active"?C.green+"18":C.red+"18",color:cStatus==="Active"?C.green:C.red,fontWeight:700,border:"none",cursor:"pointer"}}>{cStatus}</button>{(()=>{const cf=intConfidence(intSailedVoys(c).length);return cf.level<3?<span style={{fontSize:8,padding:"2px 8px",borderRadius:4,background:cf.color+"18",color:cf.color,fontWeight:700,letterSpacing:0.5}}>{cf.label}</span>:null;})()}</div>
+          <div><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={{fontSize:9,letterSpacing:2.5,color:tm.color,fontWeight:700}}>{tm.icon} {tm.label}</span><button onClick={()=>toggleStatus(c)} style={{fontSize:8,padding:"2px 8px",borderRadius:4,background:cStatus==="Active"?C.green+"18":cStatus==="Development"?C.purple+"18":C.red+"18",color:cStatus==="Active"?C.green:cStatus==="Development"?C.purple:C.red,fontWeight:700,border:"none",cursor:"pointer"}}>{cStatus}</button>{(()=>{const cf=intConfidence(intSailedVoys(c).length);return cf.level<3?<span style={{fontSize:8,padding:"2px 8px",borderRadius:4,background:cf.color+"18",color:cf.color,fontWeight:700,letterSpacing:0.5}}>{cf.label}</span>:null;})()}</div>
             <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,margin:"4px 0 6px",color:C.text}}>{c.name}</h2>
             <div style={{fontSize:11,color:C.dim}}>{stateOf(c)==="active"?getShip(c):(<><div>Last Ship - {getShip(c)}</div><div style={{marginTop:1}}>{lastMetricDate(c)?fmtShipDate(lastMetricDate(c)):""}</div></>)}</div></div>
           <div style={{textAlign:"right"}}><div style={{fontSize:9,letterSpacing:1.5,color:C.dim,marginBottom:4}}>MTD · {c.mtd.month}</div><div style={{fontSize:32,fontWeight:700,fontFamily:"'Cormorant Garamond',serif",color:metricColor(c.mtd.sp)}}>{c.mtd.sp>0?"+":""}{c.mtd.sp.toFixed(1)}%</div><div style={{fontSize:8,letterSpacing:1,color:C.dim}}>SALES VS BUDGET</div></div>
@@ -975,10 +912,6 @@ export default function ADP(){
           </Card>
         </div>
         </>);})()}
-        <Card accentColor={C.teal} style={{padding:24,marginBottom:14}}>
-          <div style={sec}>Performance Brief</div>
-          {[{label:"CHALLENGES",text:ins.chainBreak,color:C.red},{label:"ROOT CAUSE",text:ins.chainDetail,color:C.amber},{label:"SOLUTION",text:ins.drill,color:C.teal},{label:"COACH'S FEEDBACK",text:ins.proven||`Coach to the ${ins.module} module. ${ins.coachNote}`,color:C.purple}].map((s,i)=>(<div key={i} style={{marginTop:14,paddingLeft:14,borderLeft:`3px solid ${s.color}`}}><div style={{fontSize:9,letterSpacing:1.5,color:s.color,fontWeight:700,marginBottom:4}}>{s.label}</div><div style={{fontSize:12,lineHeight:1.7,color:C.textSec}}>{s.text}</div></div>))}
-        </Card>
       </>);})()}
 
       {/* MONTHLY */}
@@ -1093,7 +1026,8 @@ export default function ADP(){
         </div>)}
 
         <button onClick={runFeedback} disabled={cLoading} style={{padding:"8px 18px",borderRadius:8,border:"none",background:`linear-gradient(135deg,${C.purple},${C.teal})`,color:"#fff",fontSize:11,fontWeight:700,cursor:cLoading?"wait":"pointer",fontFamily:"'DM Sans'",opacity:cLoading?0.7:1}}>{cLoading?"Analyzing...":"Submit Feedback"}</button>
-        {coaching&&(<div style={{marginTop:12,padding:10,background:C.tealPale,borderRadius:6,fontSize:11,color:C.teal,fontWeight:600,textAlign:"center"}}>Feedback submitted. View it in the Journey tab.</div>)}
+        {coaching&&fbSaved&&(<div style={{marginTop:12,padding:10,background:C.tealPale,borderRadius:6,fontSize:11,color:C.teal,fontWeight:600,textAlign:"center"}}>Feedback submitted and logged to the Journey tab.</div>)}
+        {coaching&&!fbSaved&&!cLoading&&(<div style={{marginTop:12,padding:10,background:C.red+"12",borderRadius:6,fontSize:11,color:C.red,fontWeight:600,textAlign:"center"}}>Coaching was not generated, so nothing was saved to the Journey. See the message above and retry.</div>)}
       </Card>)}
 
       {/* JOURNEY */}
@@ -1269,9 +1203,9 @@ export default function ADP(){
         <div style={{fontSize:12,color:C.dim,marginBottom:14,lineHeight:1.6}}>Select any candidate for data-driven coaching, field notes and performance analysis. Cards reflect overall journey performance.</div>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search names..." style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:"100%",padding:"10px 14px",color:C.text,fontSize:12,fontFamily:"'DM Sans'",outline:"none",marginBottom:14}}/>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(215px,1fr))",gap:10}}>
-          {(search?listPool.filter(c=>c.name.toLowerCase().includes(search.toLowerCase())):[...listPool].sort((a,b)=>{const aS=getStatus(a)==="Active"?1:0;const bS=getStatus(b)==="Active"?1:0;if(aS!==bS)return bS-aS;return (b.mtd?.sp||0)-(a.mtd?.sp||0);})).map((c,i)=>{const tm=tierMeta[c.tier];const cStatus=getStatus(c);const isActive=stateOf(c)==="active";const isGrey=stateOf(c)==="grey";const a=c.acc||{};const md=c.mtd||{};return(<Card key={i} accentColor={tm.color} onClick={()=>openProfile(c)} style={{padding:16,opacity:isActive?1:0.55}}>
+          {(search?listPool.filter(c=>c.name.toLowerCase().includes(search.toLowerCase())):[...listPool].sort((a,b)=>{const aS=getStatus(a)==="Active"?1:0;const bS=getStatus(b)==="Active"?1:0;if(aS!==bS)return bS-aS;return (b.mtd?.sp||0)-(a.mtd?.sp||0);})).map((c,i)=>{const tm=tierMeta[c.tier];const cStatus=getStatus(c);const isActive=stateOf(c)==="active";const isGrey=stateOf(c)==="grey";const isDev=stateOf(c)==="development";const a=c.acc||{};const md=c.mtd||{};return(<Card key={i} accentColor={tm.color} onClick={()=>openProfile(c)} style={{padding:16,opacity:isActive?1:0.55}}>
             <div style={{display:"flex",justifyContent:"space-between"}}>
-              <div style={{minWidth:0,flex:1}}><div style={{fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:C.text}}>{c.name}</div>{isGrey?(<div style={{marginTop:2}}><div style={{fontSize:10,color:C.muted}}>Last Ship - {getShip(c)}</div><div style={{fontSize:10,color:C.muted,marginTop:1}}>{lastMetricDate(c)?fmtShipDate(lastMetricDate(c)):""}</div></div>):(<div style={{fontSize:10,color:C.dim,marginTop:2,display:"flex",alignItems:"center",gap:4}}><div style={{width:8,height:8,borderRadius:"50%",background:isActive?C.green:C.red,boxShadow:`0 0 6px ${isActive?C.green:C.red}44`,display:"inline-block",flexShrink:0}}/>{cStatus}</div>)}</div>
+              <div style={{minWidth:0,flex:1}}><div style={{fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:C.text}}>{c.name}</div>{isGrey?(<div style={{marginTop:2}}><div style={{fontSize:10,color:C.muted}}>Last Ship - {getShip(c)}</div><div style={{fontSize:10,color:C.muted,marginTop:1}}>{lastMetricDate(c)?fmtShipDate(lastMetricDate(c)):""}</div></div>):(<div style={{fontSize:10,color:C.dim,marginTop:2,display:"flex",alignItems:"center",gap:4}}><div style={{width:8,height:8,borderRadius:"50%",background:isActive?C.green:isDev?C.purple:C.red,boxShadow:`0 0 6px ${isActive?C.green:isDev?C.purple:C.red}44`,display:"inline-block",flexShrink:0}}/>{cStatus}</div>)}</div>
               <div style={{textAlign:"right",flexShrink:0,marginLeft:8}}><div style={{fontSize:16,fontWeight:700,color:metricColor(md.sp||0),fontFamily:"'Cormorant Garamond',serif"}}>{(md.sp||0)>0?"+":""}{(md.sp||0).toFixed(1)}%</div><div style={{fontSize:8,letterSpacing:1,color:tm.color,fontWeight:700}}>{tm.label} · MTD</div></div>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4,marginTop:12,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
