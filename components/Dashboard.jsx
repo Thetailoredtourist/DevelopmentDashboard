@@ -28,9 +28,9 @@ const getShip=(c)=>{if(!c)return"Unknown";if(c.ship)return c.ship;const m=SHIP_M
 const lastMetricDate=(c)=>{if(!c||!Array.isArray(c.weekly))return null;for(let i=c.weekly.length-1;i>=0;i--){const w=c.weekly[i];if(w&&!w.nb&&!w.nr&&w.sd>0&&w.date)return w.date;}for(let i=c.weekly.length-1;i>=0;i--){const w=c.weekly[i];if(w&&w.date&&w.sd>0)return w.date;}return (c.wkAvg&&c.wkAvg.weekOf)||null;};
 const fmtShipDate=(d)=>{if(!d)return"";const t=new Date(String(d)+"T00:00:00");if(isNaN(t.getTime()))return String(d);return t.toLocaleDateString("en-US",{day:"numeric",month:"short",year:"numeric"});};
 const lastVoyageEndOf=(c)=>{if(!c||!Array.isArray(c.weekly))return null;for(let i=c.weekly.length-1;i>=0;i--){const w=c.weekly[i];if(w&&!w.nb&&!w.nr&&w.sd>0&&w.date)return voyEndDate(w)||w.date;}for(let i=c.weekly.length-1;i>=0;i--){const w=c.weekly[i];if(w&&w.date&&w.sd>0)return voyEndDate(w)||w.date;}return (c.wkAvg&&c.wkAvg.weekOf)||null;};
-const shipLabel=(c)=>{if(!c)return"Unknown";const active=c.status==="Active"&&!c.greyOut;if(active)return getShip(c);const d=lastVoyageEndOf(c);return d?("Inactive since - "+fmtShipDate(d)):"Inactive";};
+const shipLabel=(c)=>{if(!c)return"Unknown";const active=lifecycleOf(c)==="active";if(active)return getShip(c);const d=lastVoyageEndOf(c);return d?("Inactive since - "+fmtShipDate(d)):"Inactive";};
 const gapWeeks=(c)=>{const d=lastMetricDate(c);if(!d)return 999;const t=new Date(String(d)+"T00:00:00").getTime();if(isNaN(t))return 999;const now=(typeof getESTNow==="function"?getESTNow().getTime():Date.now());return Math.round((now-t)/(7*86400000));};
-const lifecycleOf=(c)=>{const g=gapWeeks(c);if(g<4)return"active";if(g<=10)return"grey";return"dormant";};
+const lifecycleOf=(c)=>{const g=gapWeeks(c);if(g<2)return"active";if(g<=10)return"grey";return"dormant";};
 const salesBudgetFill=(r)=>{if(!isFinite(r)||r<=0)return 0;if(r<1)return r*67;if(r<1.2)return 67+(r-1)/0.2*33;return 100;};
 const salesBudgetColor=(r)=>{if(r<0.5)return C.red;if(r<0.75)return C.amber;if(r<1)return C.yellow;if(r<1.2)return C.green;return C.greenDk;};
 const salesBudgetGrad=(r)=>{if(r<0.5)return`linear-gradient(90deg,${C.red},${C.amber})`;if(r<0.75)return`linear-gradient(90deg,${C.amber},${C.yellow})`;if(r<1)return`linear-gradient(90deg,${C.yellow},${C.greenLt})`;if(r<1.1)return C.green;if(r<1.2)return`linear-gradient(90deg,${C.green},${C.greenDk})`;return C.greenDk;};
@@ -858,7 +858,7 @@ export default function ADP(){
 
   useEffect(()=>{loadOverrides().then(o=>setStatusOverrides(o));loadDevMeta().then(m=>setDevMeta(m));loadLedger().then(l=>setLedger(l));},[]);
   useEffect(()=>{const upd={...devMeta};let changed=false;Object.entries(statusOverrides).forEach(([n,st])=>{if(st==="Development"&&!upd[n]){upd[n]={devStart:new Date().toISOString(),offSince:null};changed=true;}});if(changed){setDevMeta(upd);saveDevMeta(upd);}},[statusOverrides,devMeta]);
-  const getStatus=(c)=>statusOverrides[c.name]!==undefined?statusOverrides[c.name]:c.status;
+  const getStatus=(c)=>statusOverrides[c.name]!==undefined?statusOverrides[c.name]:(lifecycleOf(c)==="active"?"Active":"Not Active");
   const stateOf=(c)=>{const ov=statusOverrides[c.name];if(ov==="Active")return"active";if(ov==="Not Active")return"grey";if(ov==="Development")return"development";return lifecycleOf(c);};
   const toggleStatus=async(c)=>{const cur=getStatus(c);const next=cur==="Active"?"Not Active":cur==="Not Active"?"Development":"Active";const upd={...statusOverrides,[c.name]:next};setStatusOverrides(upd);await saveOverrides(upd);
     const now=Date.now();const dm={...devMeta};const old=dm[c.name];
@@ -926,7 +926,7 @@ export default function ADP(){
   // Monthly: their latest data month must be the current EST month.
   // Overall: any journey data.
   const hasPerfData=(c,view)=>{
-    const isActive=(statusOverrides[c.name]!==undefined?statusOverrides[c.name]:c.status)==="Active";
+    const isActive=getStatus(c)==="Active";
     if(!isActive)return false;
     if(view==="weekly")return !!(weekAggSP(c,lastTwoWeekStarts.w1)&&weekAggSP(c,lastTwoWeekStarts.w2));
     if(view==="monthly")return !!(c.mtd&&c.mtd.month===estMonthAbbr&&(c.mtd.sd||c.mtd.aur||c.mtd.sp));

@@ -1,13 +1,1 @@
-# ── AI coaching provider keys ──────────────────────────────
-# The dashboard runs fully without these; they are only needed
-# for the AI coaching notes and the Development Lab.
-#
-# ACTIVE PROVIDER: Groq  (free, no credit card)
-#   Get a key at https://console.groq.com  → API Keys
-GROQ_API_KEY=gsk_your_key_here
-#
-# FALLBACK: Google AI Studio  (free, no credit card)
-#   Get a key at https://aistudio.google.com/app/apikey
-#   Only needed if you switch PROVIDER to "google" in
-#   app/api/coaching/route.js
-GOOGLE_AI_API_KEY=your_google_key_here
+{"compilerOptions":{"paths":{"@/*":["./*"]}}}
