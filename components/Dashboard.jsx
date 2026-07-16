@@ -29,7 +29,7 @@ const lastMetricDate=(c)=>{if(!c||!Array.isArray(c.weekly))return null;for(let i
 const fmtShipDate=(d)=>{if(!d)return"";const t=new Date(String(d)+"T00:00:00");if(isNaN(t.getTime()))return String(d);return t.toLocaleDateString("en-US",{day:"numeric",month:"short",year:"numeric"});};
 const lastVoyageEndOf=(c)=>{if(!c||!Array.isArray(c.weekly))return null;for(let i=c.weekly.length-1;i>=0;i--){const w=c.weekly[i];if(w&&!w.nb&&!w.nr&&w.sd>0&&w.date)return voyEndDate(w)||w.date;}for(let i=c.weekly.length-1;i>=0;i--){const w=c.weekly[i];if(w&&w.date&&w.sd>0)return voyEndDate(w)||w.date;}return (c.wkAvg&&c.wkAvg.weekOf)||null;};
 const shipLabel=(c)=>{if(!c)return"Unknown";const active=lifecycleOf(c)==="active";if(active)return getShip(c);const d=lastVoyageEndOf(c);return d?("Inactive since - "+fmtShipDate(d)):"Inactive";};
-const gapWeeks=(c)=>{const d=lastMetricDate(c);if(!d)return 999;const t=new Date(String(d)+"T00:00:00").getTime();if(isNaN(t))return 999;const now=(typeof getESTNow==="function"?getESTNow().getTime():Date.now());return Math.round((now-t)/(7*86400000));};
+const gapWeeks=(c)=>{const d=lastVoyageEndOf(c);if(!d)return 999;const t=new Date(String(d)+"T00:00:00").getTime();if(isNaN(t))return 999;const now=(typeof getESTNow==="function"?getESTNow().getTime():Date.now());return (now-t)/(7*86400000);};// anchored to voyage END date, exact days (no rounding)
 const lifecycleOf=(c)=>{const g=gapWeeks(c);if(g<2)return"active";if(g<=10)return"grey";return"dormant";};
 const salesBudgetFill=(r)=>{if(!isFinite(r)||r<=0)return 0;if(r<1)return r*67;if(r<1.2)return 67+(r-1)/0.2*33;return 100;};
 const salesBudgetColor=(r)=>{if(r<0.5)return C.red;if(r<0.75)return C.amber;if(r<1)return C.yellow;if(r<1.2)return C.green;return C.greenDk;};
@@ -50,13 +50,21 @@ const tierMeta={
 const hexToRgb=(h)=>{const n=parseInt(h.replace("#",""),16);return[(n>>16)&255,(n>>8)&255,n&255];};
 const mix=(a,b,t)=>a.map((v,i)=>Math.round(v+(b[i]-v)*t));
 const rgbHex=(c)=>"#"+c.map(v=>v.toString(16).padStart(2,"0")).join("");
+// A faint starfield masked so it lives only inside the black core of the ombre.
+const STARS_BG=[
+  ["47%","42%",1,0.9],["54%","45%",1,0.7],["44%","53%",1,0.8],["58%","54%",1,0.6],["50%","36%",1,0.75],
+  ["41%","46%",1,0.55],["60%","44%",1,0.5],["46%","60%",1,0.6],["56%","60%",1,0.45],["52%","50%",1.6,0.85],
+  ["43%","38%",1.4,0.7],["61%","50%",1.5,0.65],["49%","57%",1,0.5],["57%","38%",1,0.55]
+].map(([x,y,r,a])=>`radial-gradient(circle ${r}px at ${x} ${y}, rgba(255,255,255,${a}), rgba(255,255,255,0) 100%)`).join(", ");
+const STARS_MASK="radial-gradient(ellipse at center, rgba(0,0,0,1) 0%, rgba(0,0,0,0.85) 12%, rgba(0,0,0,0) 26%)";
 const buildOmbre=(base)=>{
   const b=hexToRgb(base);const white=[255,255,255];const deep=mix(b,[0,0,0],0.93);
   // Layer 1: luminous org-colored ring that halos the atom. Layer 2: true-black core
   // (the black hole) melting through deep org tones and graduating seamlessly to white.
   const glow=`radial-gradient(ellipse at center, rgba(${b[0]},${b[1]},${b[2]},0) 14%, rgba(${b[0]},${b[1]},${b[2]},0.30) 21%, rgba(${b[0]},${b[1]},${b[2]},0.08) 27%, rgba(${b[0]},${b[1]},${b[2]},0) 33%)`;
   const stops=[[[0,0,0],0],[[0,0,0],5],[deep,9],[mix(deep,b,0.45),15],[mix(deep,b,0.75),20],[b,25],[mix(b,white,0.2),30],[mix(b,white,0.42),35],[mix(b,white,0.6),40],[mix(b,white,0.75),44],[mix(b,white,0.87),48],[mix(b,white,0.94),53],[white,62],[white,100]];
-  return glow+", radial-gradient(ellipse at center, "+stops.map(([c,p])=>`${rgbHex(c)} ${p}%`).join(", ")+")";
+  const rings=`repeating-radial-gradient(ellipse at center, rgba(${b[0]},${b[1]},${b[2]},0.05) 0px, rgba(${b[0]},${b[1]},${b[2]},0.05) 1px, rgba(255,255,255,0) 2px, rgba(255,255,255,0) 44px)`;// faint orbital echo lines
+  return glow+", "+rings+", radial-gradient(ellipse at center, "+stops.map(([c,p])=>`${rgbHex(c)} ${p}%`).join(", ")+")";
 };
 const FLEET_CONFIG={
   rc:{label:"ROYAL CARIBBEAN",base:"#1e3a8a",diamond:{main:0x1e3a8a,emissive:0x2563EB,glow:0x3B82F6,wire:0x60A5FA}},
@@ -214,120 +222,6 @@ const intHealth=(list)=>{
   });
   return issues.sort((a,b)=>b.sev-a.sev);
 };
-function loadJsPDF(){
-  return new Promise((resolve,reject)=>{
-    if(window.jspdf&&window.jspdf.jsPDF)return resolve(window.jspdf.jsPDF);
-    const s=document.createElement("script");
-    s.src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
-    s.onload=()=>resolve(window.jspdf&&window.jspdf.jsPDF);
-    s.onerror=()=>reject(new Error("pdf library unavailable"));
-    document.head.appendChild(s);
-  });
-}
-function deliverPDF(doc,fname){
-  try{doc.save(fname);return true;}catch(e){}
-  try{const blob=doc.output("blob");const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=fname;a.rel="noopener";document.body.appendChild(a);a.click();setTimeout(()=>{try{document.body.removeChild(a);}catch(_){}URL.revokeObjectURL(url);},1500);return true;}catch(e){}
-  try{const url=doc.output("bloburl");const w=window.open(url,"_blank");if(w)return true;}catch(e){}
-  try{doc.output("dataurlnewwindow");return true;}catch(e){}
-  return false;
-}
-async function exportOnePager(c,tab,extra){
-  tab=tab||"overview";extra=extra||{};
-  const dv=intVariance(c,"overall");const fc=intForecast(c);
-  const t={star:["Superstar",[155,93,229]],growth:["Growth",[76,175,80]],watch:["Watch",[245,146,42]],critical:["Critical",[217,79,79]]}[c.tier];
-  const FL={effy:"EFFY",rc:"Royal Caribbean",carnival:"Carnival",ncl:"Norwegian"}[c.org]||c.org;
-  const spc=(v)=>v<0?[201,57,57]:v<10?[245,146,42]:v<20?[234,179,8]:[46,125,50];
-  const tabTitle={overview:"Overview",monthly:"Monthly Performance",weekly:"Voyage Detail",coaching:"Coaching Brief",journey:"Development Journey"}[tab]||"Overview";
-  let jsPDF;
-  try{jsPDF=await loadJsPDF();}catch(e){jsPDF=null;}
-  if(jsPDF){try{
-    const doc=new jsPDF({unit:"pt",format:"a4"});
-    const PW=doc.internal.pageSize.getWidth();const PH=doc.internal.pageSize.getHeight();
-    const M=46;const RIGHT=PW-M;let y=58;const teal=[15,118,110],ink=[21,37,42],grey=[138,148,153];
-    const line=(yy)=>{doc.setDrawColor(232,238,238);doc.line(M,yy,RIGHT,yy);};
-    const section=(label)=>{doc.setFont("times","bold");doc.setFontSize(9);doc.setTextColor(...grey);doc.text(label.toUpperCase(),M,y);y+=14;};
-    const row=(k,v,col)=>{doc.setFont("times","normal");doc.setFontSize(11);doc.setTextColor(...ink);doc.text(String(k),M,y);doc.setFont("times","bold");doc.setTextColor(...(col||ink));doc.text(String(v),RIGHT,y,{align:"right"});y+=8;line(y);y+=12;};
-    // ── header (heading reads "Ambassador Development", not "...Program")
-    doc.setFont("times","bold");doc.setFontSize(10);doc.setTextColor(...teal);
-    doc.text("EFFY AMBASSADOR DEVELOPMENT",M,y);y+=16;
-    doc.setFont("times","normal");doc.setFontSize(9);doc.setTextColor(...grey);
-    doc.text(`${tabTitle}   ·   ${FL}   ·   ${new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}`,M,y);y+=10;
-    doc.setDrawColor(...teal);doc.setLineWidth(1.4);doc.line(M,y,RIGHT,y);doc.setLineWidth(1);y+=28;
-    doc.setFont("times","bold");doc.setFontSize(24);doc.setTextColor(...ink);doc.text(c.name,M,y);y+=20;
-    doc.setFillColor(...t[1]);doc.roundedRect(M,y-10,doc.getTextWidth(t[0])+24,18,9,9,"F");
-    doc.setFontSize(10);doc.setTextColor(255,255,255);doc.text(t[0],M+12,y+2);y+=34;
-
-    if(tab==="overview"){
-      const cards=[["MTD Sales vs Budget",`${c.mtd.sp>0?"+":""}${c.mtd.sp.toFixed(1)}%`,spc(c.mtd.sp)],["MTD Sales",intFmtK(c.mtd.sd),ink],["MTD AUR",`$${Math.round(c.mtd.aur).toLocaleString()}`,ink]];
-      const cw=(RIGHT-M-2*14)/3;
-      cards.forEach((cd,i)=>{const x=M+i*(cw+14);doc.setFillColor(246,249,249);doc.roundedRect(x,y,cw,52,8,8,"F");doc.setFont("times","bold");doc.setFontSize(15);doc.setTextColor(...cd[2]);doc.text(String(cd[1]),x+12,y+26);doc.setFont("times","normal");doc.setFontSize(7.5);doc.setTextColor(...grey);doc.text(String(cd[0]).toUpperCase(),x+12,y+42);});
-      y+=78;
-      section("Budget Variance (Overall)");
-      row("Sold",intFmtK(dv.sales));row("Budget target",intFmtK(dv.budget));row("Variance to budget",`${dv.variance>=0?"+":""}${intFmtK(dv.variance)}`,dv.variance>=0?[46,125,50]:[192,57,43]);
-      const dvm=intVariance(c,"mtd");y+=6;section(`Budget Variance (${c.mtd.month})`);
-      row("Sold",intFmtK(dvm.sales));row("Budget target",intFmtK(dvm.budget));row("Variance to budget",`${dvm.variance>=0?"+":""}${intFmtK(dvm.variance)}`,dvm.variance>=0?[46,125,50]:[192,57,43]);
-      y+=6;section("Recent Trajectory");
-      row(`Current month (${c.mtd.month})`,`${c.mtd.sp>0?"+":""}${c.mtd.sp.toFixed(1)}%`,spc(c.mtd.sp));
-      row("Last completed week",`${c.wkAvg.sp>0?"+":""}${c.wkAvg.sp.toFixed(1)}%`,spc(c.wkAvg.sp));
-    }else if(tab==="monthly"){
-      section("Monthly Performance");
-      // header
-      doc.setFont("times","bold");doc.setFontSize(8);doc.setTextColor(...grey);
-      const mc=[M,M+150,M+280,M+410];
-      doc.text("MONTH",mc[0],y);doc.text("MTD SALES",mc[1],y,{align:"right"});doc.text("BUDGET SALES GAP",mc[2],y,{align:"right"});doc.text("VS BUDGET",mc[3],y,{align:"right"});
-      y+=6;line(y);y+=12;
-      const months=["Jan","Feb","Mar","Apr","May","Jun"].filter(m=>c.monthly&&c.monthly[m]);
-      const estM=MONTH_NAMES[getESTNow().getMonth()].slice(0,3);const lastM=months[months.length-1];
-      doc.setFontSize(10);
-      months.forEach(m=>{const md=c.monthly[m];const label=(m===lastM&&m===estM)?`${m} (MTD)`:m;const gap=md.gap||0;doc.setFont("times","normal");doc.setTextColor(...ink);doc.text(label,mc[0],y);doc.text(`$${Math.round(md.sdAvg||md.sd||0).toLocaleString()}`,mc[1],y,{align:"right"});doc.setFont("times","bold");doc.setTextColor(...(gap>=0?[46,125,50]:[192,57,43]));doc.text(`${gap>=0?"+":""}$${Math.round(gap).toLocaleString()}`,mc[2],y,{align:"right"});doc.setTextColor(...spc(md.sp));doc.text(`${md.sp>0?"+":""}${md.sp.toFixed(1)}%`,mc[3],y,{align:"right"});y+=8;line(y);y+=12;});
-    }else if(tab==="weekly"){
-      section("Voyage Detail · Last 8 Voyages");
-      doc.setFont("times","bold");doc.setFontSize(8);doc.setTextColor(...grey);
-      const cols=[M,M+90,M+165,M+255,M+345,M+430,M+500];
-      doc.text("START",cols[0],y);doc.text("DAYS",cols[1],y,{align:"right"});doc.text("SALES",cols[2],y,{align:"right"});doc.text("GAP",cols[3],y,{align:"right"});doc.text("VS BUD",cols[4],y,{align:"right"});doc.text("AUR",cols[5],y,{align:"right"});doc.text("UPT",cols[6],y,{align:"right"});
-      y+=6;line(y);y+=12;
-      const voys=(c.weekly||[]).slice(-8);
-      doc.setFontSize(9.5);
-      voys.forEach(w=>{const gap=w.gap||0;doc.setFont("times","normal");doc.setTextColor(...ink);doc.text(String(w.date||""),cols[0],y);doc.text(String(w.vd||""),cols[1],y,{align:"right"});doc.text(w.nb?"-":intFmtK(w.sd),cols[2],y,{align:"right"});doc.setFont("times","bold");doc.setTextColor(...(w.nb?grey:(gap>=0?[46,125,50]:[192,57,43])));doc.text(w.nb?"-":`${gap>=0?"+":""}$${Math.round(gap).toLocaleString()}`,cols[3],y,{align:"right"});doc.setTextColor(...(w.nb?grey:spc(w.sp)));doc.text(w.nb?"No budget":w.nr?"NR":`${w.sp>0?"+":""}${w.sp.toFixed(1)}%`,cols[4],y,{align:"right"});doc.setFont("times","normal");doc.setTextColor(...ink);doc.text(`$${Math.round(w.aur||0).toLocaleString()}`,cols[5],y,{align:"right"});doc.text(Number(w.upt||0).toFixed(2),cols[6],y,{align:"right"});y+=8;line(y);y+=12;});
-    }else if(tab==="coaching"){
-      const text=(extra.coachingText||"").trim();
-      section("Coaching Brief");
-      doc.setFont("times","normal");doc.setFontSize(11);doc.setTextColor(...ink);
-      if(text){const wrapped=doc.splitTextToSize(text,RIGHT-M);wrapped.forEach(ln=>{if(y>PH-90){doc.addPage();y=58;}doc.text(ln,M,y);y+=16;});}
-      else{doc.setTextColor(...grey);doc.text("No coaching note has been generated for this ambassador yet.",M,y);y+=16;
-        y+=6;section("Snapshot");row("Sales vs Budget",`${c.acc.sp>0?"+":""}${c.acc.sp.toFixed(1)}%`,spc(c.acc.sp));row("Current month",`${c.mtd.sp>0?"+":""}${c.mtd.sp.toFixed(1)}%`,spc(c.mtd.sp));}
-    }else if(tab==="journey"){
-      section("Development Journey");
-      const entries=extra.spine||[];
-      if(entries.length===0){doc.setFont("times","normal");doc.setFontSize(11);doc.setTextColor(...grey);doc.text("No journey entries recorded yet.",M,y);y+=16;}
-      else{entries.forEach(en=>{if(y>PH-90){doc.addPage();y=58;}doc.setFont("times","bold");doc.setFontSize(10);doc.setTextColor(...ink);doc.text(String(en.title||en.date||"Entry"),M,y);y+=14;if(en.body){doc.setFont("times","normal");doc.setFontSize(10);doc.setTextColor(...grey);const wrapped=doc.splitTextToSize(String(en.body),RIGHT-M);wrapped.forEach(ln=>{if(y>PH-90){doc.addPage();y=58;}doc.text(ln,M,y);y+=14;});}y+=8;line(y);y+=12;});}
-    }
-    // ── footer, centered horizontally
-    doc.setFont("times","normal");doc.setFontSize(9);doc.setTextColor(...grey);
-    doc.text("AMBASSADOR DEVELOPMENT ECO SYSTEM  ·  EFFY JEWELRY",PW/2,PH-40,{align:"center"});
-    const fname=`${c.name.replace(/[^a-z0-9]+/gi,"_")}_${tab}_EFFY.pdf`;
-    if(deliverPDF(doc,fname))return;
-  }catch(e){}
-  }
-  // Fallback: print-to-PDF window (still offers Save as PDF). Centered footer, new heading.
-  const esc=(s)=>String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;");
-  const tt={star:["Superstar","#9B5DE5"],growth:["Growth","#4CAF50"],watch:["Watch","#F5922A"],critical:["Critical","#D94F4F"]}[c.tier];
-  let bodyHtml="";
-  if(tab==="weekly"){
-    const voys=(c.weekly||[]).slice(-8);
-    bodyHtml=`<div class="label">Voyage Detail · Last 8 Voyages</div><table style="width:100%;border-collapse:collapse;font-size:12px"><tr style="color:#8A9499;text-align:right"><th style="text-align:left">Start</th><th>Days</th><th>Sales</th><th>Vs Bud</th><th>AUR</th><th>UPT</th></tr>${voys.map(w=>`<tr style="text-align:right;border-top:1px solid #e8eeee"><td style="text-align:left">${esc(w.date)}</td><td>${w.vd}</td><td>${w.nb?"-":intFmtK(w.sd)}</td><td>${w.nb?"No budget":w.nr?"NR":(w.sp>0?"+":"")+w.sp.toFixed(1)+"%"}</td><td>$${Math.round(w.aur||0).toLocaleString()}</td><td>${Number(w.upt||0).toFixed(2)}</td></tr>`).join("")}</table>`;
-  }else if(tab==="monthly"){
-    const months=["Jan","Feb","Mar","Apr","May","Jun"].filter(m=>c.monthly&&c.monthly[m]);
-    bodyHtml=`<div class="label">Monthly Sales vs Budget</div>${months.map(m=>`<div class="row"><span>${m}</span><b>${c.monthly[m].sp>0?"+":""}${c.monthly[m].sp.toFixed(1)}%</b></div>`).join("")}`;
-  }else{
-    bodyHtml=`<div class="label">Budget Variance (Overall)</div><div class="row"><span>Sold</span><b>${intFmtK(dv.sales)}</b></div><div class="row"><span>Budget target</span><b>${intFmtK(dv.budget)}</b></div><div class="row"><span>Variance to budget</span><b>${dv.variance>=0?"+":""}${intFmtK(dv.variance)}</b></div><div class="label">Recent Trajectory</div><div class="row"><span>Current month (${esc(c.mtd.month)})</span><b>${c.mtd.sp>0?"+":""}${c.mtd.sp.toFixed(1)}%</b></div><div class="row"><span>Last completed week</span><b>${c.wkAvg.sp>0?"+":""}${c.wkAvg.sp.toFixed(1)}%</b></div>`;
-  }
-  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(c.name)}</title><style>@page{margin:46px;}body{font-family:Georgia,serif;color:#15252a;max-width:720px;margin:0 auto;padding:36px;line-height:1.6;}.eyebrow{font-size:11px;letter-spacing:3px;color:#0F766E;font-weight:700;text-transform:uppercase;}.sub{font-size:10px;letter-spacing:2px;color:#8A9499;border-bottom:2px solid #0F766E;padding-bottom:12px;margin-bottom:22px;}h1{font-size:26px;margin:6px 0 2px;}.tier{display:inline-block;font-size:11px;font-weight:700;color:#fff;background:${tt[1]};padding:3px 12px;border-radius:20px;}.row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e8eeee;font-size:13px;}.label{font-size:10px;letter-spacing:1.5px;color:#8A9499;text-transform:uppercase;margin:20px 0 6px;font-weight:700;}.foot{margin-top:30px;padding-top:14px;border-top:1px solid #e2e8e8;font-size:10px;color:#8A9499;letter-spacing:1px;text-align:center;}</style></head><body><div class="eyebrow">EFFY Ambassador Development</div><div class="sub">${esc(tabTitle)} &middot; ${esc(FL)} &middot; ${new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div><h1>${esc(c.name)}</h1><div class="tier">${tt[0]}</div>${bodyHtml}<div class="foot">AMBASSADOR DEVELOPMENT ECO SYSTEM &middot; EFFY JEWELRY</div></body></html>`;
-  const w=window.open("","_blank");if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),350);}
-}
-
-
-/* ═══ WEEKLY SPARKLINE (draggable, shows recent first) ═══ */
 function WeeklySparkline({weekly,height=80}){
   const containerRef=useRef(null);
   const[dragOffset,setDragOffset]=useState(0);
@@ -370,7 +264,7 @@ function AtomViz({onSelect,data,ombre,diamondColor}){
   useEffect(()=>{
     const el=mountRef.current;if(!el)return;const w=el.clientWidth,h=el.clientWidth<480?320:420;
     const scene=new THREE.Scene();const camera=new THREE.PerspectiveCamera(42,w/h,0.1,1000);
-    const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});renderer.setSize(w,h);renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));renderer.setClearColor(0x000000,0);el.appendChild(renderer.domElement);
+    const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});renderer.setSize(w,h);renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));renderer.setClearColor(0x000000,0);el.appendChild(renderer.domElement);
     scene.add(new THREE.AmbientLight(0xffffff,0.35));const dir=new THREE.DirectionalLight(0xffffff,0.8);dir.position.set(6,10,8);scene.add(dir);const dir2=new THREE.DirectionalLight(0xDBE5F5,0.4);dir2.position.set(-5,-3,6);scene.add(dir2);
     const ptCore=new THREE.PointLight(0x3B82F6,1.4,22);ptCore.position.set(0,0,0);scene.add(ptCore);
     const dc=diamondColor;const nucGroup=new THREE.Group();const coreObj=new THREE.Group();let iLight=null,aura=null;
@@ -429,7 +323,7 @@ function AtomViz({onSelect,data,ombre,diamondColor}){
     let ro=null;if(typeof ResizeObserver!=="undefined"){ro=new ResizeObserver(()=>{onResize();});ro.observe(el);}
     return()=>{cancelAnimationFrame(frameRef.current);if(hideTimeoutRef.current)clearTimeout(hideTimeoutRef.current);window.removeEventListener("resize",onResize);if(ro)ro.disconnect();el.removeEventListener("mousemove",onMv);el.removeEventListener("mousedown",onDn);el.removeEventListener("mouseup",onUp);el.removeEventListener("mouseleave",onLv);renderer.dispose();if(el.contains(renderer.domElement))el.removeChild(renderer.domElement);};
   },[onSelect,data,ombre,diamondColor]);
-  return(<div style={{position:"relative",overflow:"visible",border:"none",background:"transparent"}}><div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",width:"100%",height:"100%",borderRadius:"50%",background:ombre,zIndex:0,pointerEvents:"none"}}/><div ref={mountRef} style={{width:"100%",height:420,position:"relative",zIndex:1}}/><div ref={tooltipRef} style={{position:"absolute",pointerEvents:"none",opacity:0,transition:"opacity 0.2s",background:"rgba(10,10,12,0.95)",backdropFilter:"blur(20px)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,padding:"10px 14px",fontFamily:"'DM Sans',sans-serif",zIndex:10,maxWidth:200,cursor:"pointer"}}/><div style={{position:"absolute",top:16,left:16,display:"flex",flexDirection:"column",gap:8,zIndex:2}}>{Object.entries(tierMeta).map(([k,v])=>(<div key={k} style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:7,height:7,borderRadius:"50%",background:v.color,boxShadow:`0 0 8px ${v.color}`}}/><span style={{fontSize:8,color:C.textSec,fontWeight:700,letterSpacing:1}}>{v.label}</span></div>))}</div></div>);
+  return(<div style={{position:"relative",overflow:"visible",border:"none",background:"transparent"}}><div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",width:"100%",height:"100%",borderRadius:"50%",background:ombre,zIndex:0,pointerEvents:"none"}}/><div style={{position:"absolute",inset:0,zIndex:0,pointerEvents:"none",background:STARS_BG,WebkitMaskImage:STARS_MASK,maskImage:STARS_MASK}}/><div ref={mountRef} style={{width:"100%",height:420,position:"relative",zIndex:1}}/><div ref={tooltipRef} style={{position:"absolute",pointerEvents:"none",opacity:0,transition:"opacity 0.2s",background:"rgba(10,10,12,0.95)",backdropFilter:"blur(20px)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,padding:"10px 14px",fontFamily:"'DM Sans',sans-serif",zIndex:10,maxWidth:200,cursor:"pointer"}}/><div style={{position:"absolute",top:16,left:16,display:"flex",flexDirection:"column",gap:8,zIndex:2}}>{Object.entries(tierMeta).map(([k,v])=>(<div key={k} style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:7,height:7,borderRadius:"50%",background:v.color,boxShadow:`0 0 8px ${v.color}`}}/><span style={{fontSize:8,color:C.textSec,fontWeight:700,letterSpacing:1}}>{v.label}</span></div>))}</div></div>);
 }
 
 class ProfileErrorBoundary extends Component{
@@ -818,6 +712,7 @@ export default function ADP(){
   const[expandedEntry,setExpandedEntry]=useState(null);
   const[profileTab,setProfileTab]=useState("overview");
   const pendingTabRef=useRef(null);
+  const atomTouch=useRef(null);
   const[debriefCoached,setDebriefCoached]=useState({});
   const[statusOverrides,setStatusOverrides]=useState({});
   const[devMeta,setDevMeta]=useState({});
@@ -939,7 +834,7 @@ export default function ADP(){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           <button onClick={closeProfile} style={{background:C.surface,border:`1px solid ${C.border}`,color:C.dim,fontSize:11,padding:"6px 16px",borderRadius:6,cursor:"pointer",fontFamily:"'DM Sans'"}}>Back</button>
-          <button onClick={()=>{exportOnePager(c,profileTab,{coachingText:coaching,spine:spine}).catch(()=>{});}} style={{background:"transparent",border:`1px solid ${C.teal}`,color:C.teal,fontSize:11,fontWeight:700,padding:"6px 14px",borderRadius:6,cursor:"pointer",fontFamily:"'DM Sans'"}}>Download PDF</button>
+          <button onClick={()=>window.print()} title="Prints exactly what is on screen. Choose Save as PDF in the print dialog." style={{background:"transparent",border:`1px solid ${C.teal}`,color:C.teal,fontSize:11,fontWeight:700,padding:"6px 14px",borderRadius:6,cursor:"pointer",fontFamily:"'DM Sans'"}}>Download PDF</button>
         </div>
         <div style={{display:"flex",gap:8}}><button disabled={selIdx<=0} onClick={()=>navProfile(-1)} style={{background:selIdx>0?C.surface:"transparent",border:`1px solid ${selIdx>0?C.border:"transparent"}`,color:selIdx>0?C.dim:C.faint,fontSize:13,padding:"6px 14px",borderRadius:6,cursor:selIdx>0?"pointer":"default",fontFamily:"'DM Sans'",fontWeight:700}}>Prev</button><span style={{fontSize:10,color:C.muted,alignSelf:"center"}}>{selIdx+1}/{profilePool.length}</span><button disabled={selIdx>=profilePool.length-1} onClick={()=>navProfile(1)} style={{background:selIdx<profilePool.length-1?C.surface:"transparent",border:`1px solid ${selIdx<profilePool.length-1?C.border:"transparent"}`,color:selIdx<profilePool.length-1?C.dim:C.faint,fontSize:13,padding:"6px 14px",borderRadius:6,cursor:selIdx<profilePool.length-1?"pointer":"default",fontFamily:"'DM Sans'",fontWeight:700}}>Next</button></div>
       </div>
@@ -1169,7 +1064,7 @@ export default function ADP(){
         </div>
       </div>
     </div>)}
-    <style>{`*{box-sizing:border-box}::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-thumb{background:${C.faint};border-radius:4px}input::placeholder,textarea::placeholder{color:${C.muted}}@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}.itag{transition:all 0.2s ease;cursor:pointer}.itag:hover{transform:translateY(-1px);box-shadow:0 2px 12px rgba(0,0,0,0.12)}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+    <style>{`*{box-sizing:border-box}::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-thumb{background:${C.faint};border-radius:4px}input::placeholder,textarea::placeholder{color:${C.muted}}@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}.itag{transition:all 0.2s ease;cursor:pointer}.itag:hover{transform:translateY(-1px);box-shadow:0 2px 12px rgba(0,0,0,0.12)}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}html,body{margin:0;padding:0;width:100%;overflow-x:hidden}table{max-width:100%}@media(max-width:768px){::-webkit-scrollbar{width:2px;height:2px}button{-webkit-tap-highlight-color:transparent}}@media(min-width:1024px){.itag:hover{transform:translateY(-2px)}}@media print{*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}body{overflow:visible!important}}`}</style>
 
     {/* HEADER */}
     <div style={{background:`linear-gradient(135deg,${C.tealDk},${C.teal})`,padding:"18px 24px 14px"}}>
@@ -1198,12 +1093,12 @@ export default function ADP(){
       {tabs.map(t=>(<button key={t.id} onClick={()=>{setTab(t.id);setSelected(null);setSearch("");setTierFilter("all");setGroupView(null);}} style={{background:tab===t.id?`linear-gradient(180deg,${C.teal}14,${C.teal}04)`:"none",border:"none",color:tab===t.id?C.teal:C.dim,fontSize:12,fontWeight:tab===t.id?700:600,padding:"14px 18px",cursor:"pointer",borderBottom:tab===t.id?`3px solid ${C.teal}`:"2px solid transparent",marginBottom:-2,fontFamily:"'DM Sans'",letterSpacing:0.3,whiteSpace:"nowrap",borderTopLeftRadius:8,borderTopRightRadius:8,textShadow:tab===t.id?`0 0 16px ${C.teal}66`:"none",boxShadow:tab===t.id?`0 4px 18px -6px ${C.teal}55`:"none",transition:"all 0.25s ease"}}>{t.label}</button>))}
     </div>
 
-    <div style={{padding:mv?"14px 14px 40px":"20px 20px 40px",maxWidth:mv?420:940,margin:"0 auto",transition:"max-width 0.35s ease"}}>
+    <div style={{padding:mv?"14px 12px 40px":"20px 20px 40px",maxWidth:mv?"100%":1280,width:"100%",margin:"0 auto",transition:"max-width 0.35s ease"}}>
       {/* COMMAND CENTER */}
       {tab==="command"&&!selected&&(<div style={{animation:"fadeUp 0.35s ease"}}>
-        <div style={{position:"relative",marginBottom:20}}>
-          <button onClick={()=>setActiveOrg(i=>(i-1+orgs.length)%orgs.length)} style={{position:"absolute",left:8,top:"50%",transform:"translateY(-50%)",zIndex:5,width:36,height:36,borderRadius:"50%",border:`1px solid ${C.border}`,background:"rgba(255,255,255,0.85)",backdropFilter:"blur(8px)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:C.dim}}>&#8249;</button>
-          <button onClick={()=>setActiveOrg(i=>(i+1)%orgs.length)} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",zIndex:5,width:36,height:36,borderRadius:"50%",border:`1px solid ${C.border}`,background:"rgba(255,255,255,0.85)",backdropFilter:"blur(8px)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:C.dim}}>&#8250;</button>
+        <div style={{position:"relative",marginBottom:20,touchAction:"pan-y"}} onTouchStart={e=>{atomTouch.current={x:e.touches[0].clientX,y:e.touches[0].clientY};}} onTouchEnd={e=>{const t0=atomTouch.current;if(!t0)return;const dx=e.changedTouches[0].clientX-t0.x;const dy=e.changedTouches[0].clientY-t0.y;if(Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.5){setActiveOrg(a=>(a+(dx<0?1:-1)+orgs.length)%orgs.length);}atomTouch.current=null;}}>
+          <button onClick={()=>setActiveOrg(i=>(i-1+orgs.length)%orgs.length)} style={{position:"absolute",left:8,top:"50%",transform:"translateY(-50%)",zIndex:5,width:44,height:44,borderRadius:"50%",border:"none",background:"rgba(15,118,110,0.07)",backdropFilter:"blur(6px)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,fontWeight:700,color:"rgba(15,118,110,0.6)",textShadow:"0 0 12px rgba(15,118,110,0.55)",boxShadow:"0 0 18px rgba(15,118,110,0.3)"}}>&#8249;</button>
+          <button onClick={()=>setActiveOrg(i=>(i+1)%orgs.length)} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",zIndex:5,width:44,height:44,borderRadius:"50%",border:"none",background:"rgba(15,118,110,0.07)",backdropFilter:"blur(6px)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,fontWeight:700,color:"rgba(15,118,110,0.6)",textShadow:"0 0 12px rgba(15,118,110,0.55)",boxShadow:"0 0 18px rgba(15,118,110,0.3)"}}>&#8250;</button>
           <div style={{position:"absolute",top:16,left:"50%",transform:"translateX(-50%)",zIndex:5,textAlign:"center"}}><div style={{fontSize:11,letterSpacing:3,fontWeight:700,color:org.accent}}>{org.label}</div></div>
           <div style={{position:"absolute",bottom:16,left:"50%",transform:"translateX(-50%)",zIndex:5,display:"flex",gap:8}}>{orgs.map((o,i)=>(<button key={o.id} onClick={()=>setActiveOrg(i)} style={{width:i===activeOrg?24:8,height:8,borderRadius:4,border:"none",cursor:"pointer",background:i===activeOrg?o.accent:C.faint,transition:"all 0.3s ease",opacity:i===activeOrg?1:0.5}}/>))}</div>
           <AtomViz key={org.id} onSelect={openProfile} data={activePool} ombre={org.ombre} diamondColor={org.diamondColor}/>
