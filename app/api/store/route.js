@@ -31,8 +31,10 @@ export async function POST(req) {
 
     // --- LOGIN: verify against the coaches table, return a signed session token ---
     if (action === "login") {
+      const exists = await sql`select 1 from coaches where email = ${String(email || "").toLowerCase()} limit 1`;
+      if (!exists.length) return Response.json({ ok: false, error: "email" }, { status: 401 });
       const rows = await sql`select * from verify_coach(${email}, ${password})`;
-      if (!rows.length) return Response.json({ ok: false, error: "Invalid email or password" }, { status: 401 });
+      if (!rows.length) return Response.json({ ok: false, error: "password" }, { status: 401 });
       const coach = rows[0];
       const tok = sign({ email: coach.email, name: coach.name, is_admin: coach.is_admin, exp: Date.now() + 12 * 3600 * 1000 });
       return Response.json({ ok: true, token: tok, name: coach.name, isAdmin: coach.is_admin });

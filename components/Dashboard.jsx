@@ -270,8 +270,10 @@ function AtomViz({onSelect,data,ombre,diamondColor}){
   const mouseRef=useRef({x:0,y:0,down:false,camTheta:0.6,camPhi:0.45,overTooltip:false});
   const frameRef=useRef(null);const hoveredRef=useRef(null);const hideTimeoutRef=useRef(null);
   useEffect(()=>{
-    const el=mountRef.current;if(!el)return;const w=el.clientWidth;const slotH=el.clientWidth<480?320:420;const h=slotH+160;el.style.height=slotH+"px";// canvas renders 160px taller than its layout slot and overflows it invisibly: no visible boundary
+    const el=mountRef.current;if(!el)return;const w=el.clientWidth;const slotH=el.clientWidth<480?320:420;const h=slotH+300;el.style.height=slotH+"px";// canvas renders 160px taller than its layout slot and overflows it invisibly: no visible boundary
     const scene=new THREE.Scene();const camera=new THREE.PerspectiveCamera(42,w/h,0.1,1000);
+    const RMAX=6.9;// largest orbital (Critical, r=6.5) plus electron body
+    const cd=Math.max(16,RMAX/Math.sin((42*Math.PI/180)/2)*1.04);// sphere-fit: biggest ring provably fits at any rotation
     const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});renderer.setSize(w,h);renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));renderer.setClearColor(0x000000,0);el.appendChild(renderer.domElement);const cv=renderer.domElement;cv.style.display="block";cv.style.position="absolute";cv.style.left="50%";cv.style.top="50%";cv.style.transform="translate(-50%,-50%)";
     scene.add(new THREE.AmbientLight(0xffffff,0.35));const dir=new THREE.DirectionalLight(0xffffff,0.8);dir.position.set(6,10,8);scene.add(dir);const dir2=new THREE.DirectionalLight(0xDBE5F5,0.4);dir2.position.set(-5,-3,6);scene.add(dir2);
     const ptCore=new THREE.PointLight(0x3B82F6,1.4,22);ptCore.position.set(0,0,0);scene.add(ptCore);
@@ -326,7 +328,7 @@ function AtomViz({onSelect,data,ombre,diamondColor}){
     const onUp=(e)=>{if(mouseRef.current.down){const{x,y}=getMP(e);if(Math.hypot(x-mouseRef.current.startX,y-mouseRef.current.startY)<5){const hits=doRC(x,y);if(hits.length>0&&hits[0].object.userData.candidate)onSelect(hits[0].object.userData.candidate);}}mouseRef.current.down=false;};
     const onLv=()=>{mouseRef.current.down=false;schedHide();};
     el.addEventListener("mousemove",onMv);el.addEventListener("mousedown",onDn);el.addEventListener("mouseup",onUp);el.addEventListener("mouseleave",onLv);
-    let t=0;const animate=()=>{frameRef.current=requestAnimationFrame(animate);t+=0.012;coreObj.rotation.y+=0.008;coreObj.rotation.x=Math.sin(t*0.35)*0.12;if(aura)aura.scale.setScalar(1+Math.sin(t*0.7)*0.08);if(iLight)iLight.intensity=1.3+Math.sin(t*2.5)*0.5;protons.forEach(p=>{p.userData.angle+=0.02*p.userData.speed;const a=p.userData.angle,r=p.userData.radius;p.position.set(Math.cos(a)*r*Math.cos(p.userData.axisX),Math.sin(a)*r*Math.sin(p.userData.axisZ+0.5),Math.sin(a)*r*Math.cos(p.userData.axisZ));});ptCore.intensity=1.2+Math.sin(t*3)*0.4;dust.rotation.y+=0.0005;dust.rotation.x=Math.sin(t*0.1)*0.05;sparkles.forEach(sk=>{const v=Math.sin(t*sk.userData.spd+sk.userData.ph);sk.material.opacity=Math.max(0,v)*Math.max(0,v)*Math.max(0,v)*0.85;});scene.children.forEach(child=>{if(child.userData?.tierKey){if(child.userData.ring)child.userData.ring.material.opacity=0.13+0.09*(0.5+0.5*Math.sin(t*0.9+(child.userData.speed||0)*25));child.children.forEach(obj=>{if(obj.userData?.candidate){const ud=obj.userData;const an=ud.baseAngle+t*ud.orbitSpeed;obj.position.set(Math.cos(an)*ud.orbitRadius,Math.sin(t*1.5+ud.baseAngle)*0.15,Math.sin(an)*ud.orbitRadius);if(ud.label)ud.label.position.copy(obj.position);if(ud.trailArr){const a=ud.trailArr;a.copyWithin(0,3);a[a.length-3]=obj.position.x;a[a.length-2]=obj.position.y;a[a.length-1]=obj.position.z;ud.trail.geometry.attributes.position.needsUpdate=true;}}});}});if(!mouseRef.current.down)mouseRef.current.camTheta+=0.001;const cd=16,ph=mouseRef.current.camPhi,th=mouseRef.current.camTheta;camera.position.set(Math.sin(th)*Math.cos(ph)*cd,Math.sin(ph)*cd,Math.cos(th)*Math.cos(ph)*cd);camera.lookAt(0,0,0);renderer.render(scene,camera);};animate();
+    let t=0;const animate=()=>{frameRef.current=requestAnimationFrame(animate);t+=0.012;coreObj.rotation.y+=0.008;coreObj.rotation.x=Math.sin(t*0.35)*0.12;if(aura)aura.scale.setScalar(1+Math.sin(t*0.7)*0.08);if(iLight)iLight.intensity=1.3+Math.sin(t*2.5)*0.5;protons.forEach(p=>{p.userData.angle+=0.02*p.userData.speed;const a=p.userData.angle,r=p.userData.radius;p.position.set(Math.cos(a)*r*Math.cos(p.userData.axisX),Math.sin(a)*r*Math.sin(p.userData.axisZ+0.5),Math.sin(a)*r*Math.cos(p.userData.axisZ));});ptCore.intensity=1.2+Math.sin(t*3)*0.4;dust.rotation.y+=0.0005;dust.rotation.x=Math.sin(t*0.1)*0.05;sparkles.forEach(sk=>{const v=Math.sin(t*sk.userData.spd+sk.userData.ph);sk.material.opacity=Math.max(0,v)*Math.max(0,v)*Math.max(0,v)*0.85;});scene.children.forEach(child=>{if(child.userData?.tierKey){if(child.userData.ring)child.userData.ring.material.opacity=0.13+0.09*(0.5+0.5*Math.sin(t*0.9+(child.userData.speed||0)*25));child.children.forEach(obj=>{if(obj.userData?.candidate){const ud=obj.userData;const an=ud.baseAngle+t*ud.orbitSpeed;obj.position.set(Math.cos(an)*ud.orbitRadius,Math.sin(t*1.5+ud.baseAngle)*0.15,Math.sin(an)*ud.orbitRadius);if(ud.label)ud.label.position.copy(obj.position);if(ud.trailArr){const a=ud.trailArr;a.copyWithin(0,3);a[a.length-3]=obj.position.x;a[a.length-2]=obj.position.y;a[a.length-1]=obj.position.z;ud.trail.geometry.attributes.position.needsUpdate=true;}}});}});if(!mouseRef.current.down)mouseRef.current.camTheta+=0.001;const ph=mouseRef.current.camPhi,th=mouseRef.current.camTheta;camera.position.set(Math.sin(th)*Math.cos(ph)*cd,Math.sin(ph)*cd,Math.cos(th)*Math.cos(ph)*cd);camera.lookAt(0,0,0);renderer.render(scene,camera);};animate();
     const onResize=()=>{const nw=el.clientWidth;if(nw>0){camera.aspect=nw/h;camera.updateProjectionMatrix();renderer.setSize(nw,h);}};window.addEventListener("resize",onResize);
     let ro=null;if(typeof ResizeObserver!=="undefined"){ro=new ResizeObserver(()=>{onResize();});ro.observe(el);}
     return()=>{cancelAnimationFrame(frameRef.current);if(hideTimeoutRef.current)clearTimeout(hideTimeoutRef.current);window.removeEventListener("resize",onResize);if(ro)ro.disconnect();el.removeEventListener("mousemove",onMv);el.removeEventListener("mousedown",onDn);el.removeEventListener("mouseup",onUp);el.removeEventListener("mouseleave",onLv);renderer.dispose();if(el.contains(renderer.domElement))el.removeChild(renderer.domElement);};
@@ -354,6 +356,46 @@ const storage={
   async set(k,v){try{const parsed=(()=>{try{return JSON.parse(v);}catch{return v;}})();const r=await fetch("/api/store",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"set",key:k,value:parsed,token:(typeof window!=="undefined"&&window.__coachToken)||""})});const d=await r.json();return d&&d.ok?{key:k,value:v}:null;}catch{return null;}},
 };
 
+function buildCoachingDoc(data){
+  const esc=(x)=>String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const recs=(data&&data.records)||[];
+  // group records by type for a readable document
+  const spines=recs.filter(r=>String(r.key).startsWith("spine:"));
+  const groups=recs.filter(r=>String(r.key)==="group_dev_v1");
+  const fmt=(d)=>{try{return new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});}catch{return d||"";}};
+  let body="";
+  body+=`<h1>EFFY Development Program</h1>`;
+  body+=`<p><b>Coaching Backup</b> · Generated ${esc(fmt(data.exportedAt||new Date().toISOString()))} · ${recs.length} records</p><hr/>`;
+  // Individual journeys
+  body+=`<h2>Individual Coaching Journeys</h2>`;
+  if(!spines.length)body+=`<p>No individual journeys recorded.</p>`;
+  spines.forEach(r=>{
+    const name=String(r.key).replace("spine:","").replace(/_/g," ");
+    let entries=[];try{entries=Array.isArray(r.value)?r.value:JSON.parse(r.value);}catch{}
+    if(!entries||!entries.length)return;
+    body+=`<h3>${esc(name)}</h3>`;
+    entries.forEach(e=>{
+      body+=`<p><b>${esc(fmt(e.date))}</b>${e.focus?" · "+esc(e.focus):""}</p>`;
+      if(e.feedback)body+=`<p>${esc(e.feedback)}</p>`;
+      if(e.directive)body+=`<p><i>Directive:</i> ${esc(e.directive)}</p>`;
+      if(e.drill)body+=`<p><i>Action:</i> ${esc(e.drill)}</p>`;
+    });
+  });
+  // Group development
+  body+=`<hr/><h2>Group Development</h2>`;
+  let gList=[];try{const g=groups[0];gList=g?(Array.isArray(g.value)?g.value:JSON.parse(g.value)):[];}catch{}
+  if(!gList.length)body+=`<p>No groups recorded.</p>`;
+  gList.forEach(g=>{
+    body+=`<h3>${esc(g.name)}</h3>`;
+    body+=`<p><i>Members:</i> ${esc((g.members||[]).join(", ")||"none")}</p>`;
+    (g.journey||[]).forEach(e=>{
+      body+=`<p><b>${esc(fmt(e.date))}</b>${e.focus?" · "+esc(e.focus):""}</p>`;
+      if(e.feedback)body+=`<p>${esc(e.feedback)}</p>`;
+      if(e.directive)body+=`<p><i>Directive:</i> ${esc(e.directive)}</p>`;
+    });
+  });
+  return `<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>EFFY Coaching Backup</title><style>body{font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#1a1a1a;}h1{color:#0F766E;font-size:20pt;}h2{color:#0F766E;font-size:14pt;border-bottom:1px solid #ccc;padding-bottom:3px;}h3{color:#111;font-size:12pt;margin-top:14px;}p{margin:3px 0;}i{color:#555;}</style></head><body>${body}</body></html>`;
+}
 async function loadLedger(){try{const r=await storage.get("learning_ledger");return r?JSON.parse(r.value):{successes:[],patterns:[],culture:[]};}catch{return{successes:[],patterns:[],culture:[]};}}
 async function saveLedger(l){try{await storage.set("learning_ledger",JSON.stringify(l));}catch{}}
 
@@ -852,7 +894,9 @@ export default function ADP(){
   const[loginPass,setLoginPass]=useState("");
   const[loginErr,setLoginErr]=useState("");
   const[loginBusy,setLoginBusy]=useState(false);
-  const doLogin=async()=>{setLoginBusy(true);setLoginErr("");try{const r=await fetch("/api/store",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"login",email:loginEmail,password:loginPass})});const d=await r.json();if(d&&d.ok){if(typeof window!=="undefined"){window.__coachToken=d.token;window.__coachName=d.name;}setCoach({name:d.name,isAdmin:d.isAdmin});setIsAdmin(!!d.isAdmin);setShowPwPrompt(false);setLoginPass("");}else{setLoginErr((d&&d.error)||"Login failed");}}catch(e){setLoginErr("Could not reach the server");}setLoginBusy(false);};
+  const[showPw,setShowPw]=useState(false);
+  const pwDownRef=useRef(false);
+  const doLogin=async()=>{setLoginBusy(true);setLoginErr("");try{const r=await fetch("/api/store",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"login",email:loginEmail,password:loginPass})});const d=await r.json();if(d&&d.ok){if(typeof window!=="undefined"){window.__coachToken=d.token;window.__coachName=d.name;}setCoach({name:d.name,isAdmin:d.isAdmin});setIsAdmin(!!d.isAdmin);setShowPwPrompt(false);setLoginPass("");setShowPw(false);}else{setLoginErr(d&&d.error==="email"?"Incorrect email address":d&&d.error==="password"?"Incorrect password":"Could not sign in");}}catch(e){setLoginErr("Could not reach the server");}setLoginBusy(false);};
   const doLogout=()=>{if(typeof window!=="undefined"){window.__coachToken="";window.__coachName="";}setCoach(null);setIsAdmin(false);};
   const[showPwPrompt,setShowPwPrompt]=useState(false);
   const[pwEntry,setPwEntry]=useState("");
@@ -1162,12 +1206,15 @@ export default function ADP(){
 
   return(<div style={{fontFamily:"'DM Sans',sans-serif",background:C.bg,color:C.text,minHeight:"100vh"}}>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Cormorant+Garamond:wght@500;600;700&display=swap" rel="stylesheet"/>
-    {showPwPrompt&&(<div onClick={()=>setShowPwPrompt(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.55)",backdropFilter:"blur(4px)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:14,padding:"26px 24px",width:340,maxWidth:"90vw",boxShadow:"0 24px 60px -12px rgba(0,0,0,0.4)"}}>
+    {showPwPrompt&&(<div onMouseDown={e=>{if(e.target===e.currentTarget)pwDownRef.current=true;}} onMouseUp={e=>{if(e.target===e.currentTarget&&pwDownRef.current)setShowPwPrompt(false);pwDownRef.current=false;}} style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.55)",backdropFilter:"blur(4px)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div onMouseDown={e=>e.stopPropagation()} onMouseUp={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:14,padding:"26px 24px",width:340,maxWidth:"90vw",boxShadow:"0 24px 60px -12px rgba(0,0,0,0.4)"}}>
         <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:C.text,marginBottom:4}}>Coach Sign In</div>
         <div style={{fontSize:11,color:C.dim,marginBottom:16}}>Sign in to record coaching and development.</div>
-        <input autoFocus type="email" value={loginEmail} onChange={e=>{setLoginEmail(e.target.value);setLoginErr("");}} placeholder="Email" style={{width:"100%",boxSizing:"border-box",padding:"10px 12px",fontSize:13,border:`1px solid ${C.border}`,borderRadius:8,outline:"none",marginBottom:10}}/>
-        <input type="password" value={loginPass} onChange={e=>{setLoginPass(e.target.value);setLoginErr("");}} onKeyDown={e=>{if(e.key==="Enter")doLogin();}} placeholder="Password" style={{width:"100%",boxSizing:"border-box",padding:"10px 12px",fontSize:13,border:`1px solid ${loginErr?C.red:C.border}`,borderRadius:8,outline:"none",marginBottom:loginErr?6:14}}/>
+        <input autoFocus type="email" value={loginEmail} onChange={e=>{setLoginEmail(e.target.value);setLoginErr("");}} onKeyDown={e=>{if(e.key==="Enter")doLogin();}} placeholder="Email" style={{width:"100%",boxSizing:"border-box",padding:"10px 12px",fontSize:13,border:`1px solid ${loginErr==="Incorrect email address"?C.red:C.border}`,borderRadius:8,outline:"none",marginBottom:10}}/>
+        <div style={{position:"relative",marginBottom:loginErr?6:14}}>
+          <input type={showPw?"text":"password"} value={loginPass} onChange={e=>{setLoginPass(e.target.value);setLoginErr("");}} onKeyDown={e=>{if(e.key==="Enter")doLogin();}} placeholder="Password" style={{width:"100%",boxSizing:"border-box",padding:"10px 40px 10px 12px",fontSize:13,border:`1px solid ${loginErr==="Incorrect password"?C.red:C.border}`,borderRadius:8,outline:"none"}}/>
+          <button type="button" onClick={()=>setShowPw(v=>!v)} title={showPw?"Hide password":"Show password"} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",padding:4,fontSize:14,lineHeight:1,color:C.dim}}>{showPw?"\u{1F441}":"\u{1F441}\u200D\u{1F5E8}"}</button>
+        </div>
         {loginErr&&<div style={{fontSize:11,color:C.red,marginBottom:12}}>{loginErr}</div>}
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <button onClick={()=>setShowPwPrompt(false)} style={{background:"none",border:`1px solid ${C.border}`,color:C.dim,fontSize:12,padding:"8px 16px",borderRadius:7,cursor:"pointer"}}>Cancel</button>
@@ -1186,8 +1233,9 @@ export default function ADP(){
           </button>
           <div><h1 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:mv?15:22,fontWeight:700,margin:"0",color:"#fff",lineHeight:1.15}}>Development Dashboard</h1><div style={{display:"flex",alignItems:"center",gap:6,marginTop:4}}><div style={{width:7,height:7,borderRadius:"50%",background:connStatus==="Live"?"#4ADE80":connStatus==="Connecting"?"#FBBF24":"#60A5FA",boxShadow:`0 0 8px ${connStatus==="Live"?"#4ADE80":connStatus==="Connecting"?"#FBBF24":"#60A5FA"}`,animation:"pulse 2s infinite"}}/><span style={{fontSize:10,color:"rgba(255,255,255,0.6)",letterSpacing:1}}>{connStatus}</span></div></div>
         </div>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"center",justifySelf:"center",pointerEvents:"none",minWidth:0}}>
-          <img src={EFFY_LOGO} alt="EFFY" style={{height:mv?24:40,objectFit:"contain"}}/>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",justifySelf:"center",pointerEvents:"none",minWidth:0}}>
+          <img src={EFFY_LOGO} alt="EFFY" style={{height:mv?22:36,objectFit:"contain"}}/>
+          <div style={{width:mv?46:66,aspectRatio:"48/55",marginTop:-3,backgroundImage:`url(${PANTHER_EMBOSS})`,backgroundSize:"100% 100%",mixBlendMode:"soft-light",opacity:0.95,WebkitMaskImage:"radial-gradient(ellipse at center, rgba(0,0,0,1) 58%, rgba(0,0,0,0) 94%)",maskImage:"radial-gradient(ellipse at center, rgba(0,0,0,1) 58%, rgba(0,0,0,0) 94%)"}}/>
         </div>
         <div style={{display:"flex",alignItems:"flex-end",gap:mv?3:6,flexDirection:"column",justifySelf:"end",minWidth:0}}>
           <span style={{fontSize:mv?8:9,color:"rgba(255,255,255,0.7)",letterSpacing:0.5,fontWeight:600,fontVariantNumeric:"tabular-nums",whiteSpace:"nowrap"}}>{estStamp}</span>
@@ -1195,7 +1243,7 @@ export default function ADP(){
             {coach?(<span onClick={doLogout} title="Sign out" style={{fontSize:9,color:"rgba(255,255,255,0.7)",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"}}>{coach.name} · sign out</span>):(<span onClick={()=>{setLoginErr("");setShowPwPrompt(true);}} title="Sign in to record coaching" style={{fontSize:9,color:"rgba(255,255,255,0.7)",cursor:"pointer",fontWeight:600}}>Sign in</span>)}
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={handleRefreshFile} style={{display:"none"}}/>
             <button onClick={()=>{if(isAdmin){fileInputRef.current&&fileInputRef.current.click();}else{setLoginErr("");setShowPwPrompt(true);}}} style={{background:"none",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:isAdmin?"#4ADE80":"rgba(255,255,255,0.5)",fontSize:14,padding:2,transition:"color 0.2s"}} title={isAdmin?"Refresh from Excel file (admin)":"Admin sign-in required to refresh data"} onMouseEnter={e=>{e.currentTarget.style.color="#fff";}} onMouseLeave={e=>{e.currentTarget.style.color=isAdmin?"#4ADE80":"rgba(255,255,255,0.5)";}}>{isAdmin?"\u21bb":"\u{1F512}"}</button>
-            <button onClick={async()=>{try{const r=await fetch("/api/store",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"export"})});const data=await r.json();const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="effy-coaching-backup-"+new Date().toISOString().slice(0,10)+".json";a.click();URL.revokeObjectURL(url);}catch(e){alert("Backup failed: "+(e&&e.message?e.message:e));}}} title="Download a full backup of all coaching data" style={{background:"none",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"rgba(255,255,255,0.5)",fontSize:13,padding:2,transition:"color 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.color="#fff";}} onMouseLeave={e=>{e.currentTarget.style.color="rgba(255,255,255,0.5)";}}>{"\u2913"}</button>
+            <button onClick={async()=>{try{const r=await fetch("/api/store",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"export"})});const data=await r.json();const html=buildCoachingDoc(data);const blob=new Blob(["\ufeff",html],{type:"application/msword"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="EFFY-Coaching-Backup-"+new Date().toISOString().slice(0,10)+".doc";a.click();URL.revokeObjectURL(url);}catch(e){alert("Backup failed: "+(e&&e.message?e.message:e));}}} title="Download a full backup of all coaching data" style={{background:"none",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"rgba(255,255,255,0.5)",fontSize:13,padding:2,transition:"color 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.color="#fff";}} onMouseLeave={e=>{e.currentTarget.style.color="rgba(255,255,255,0.5)";}}>{"\u2913"}</button>
             <span style={{fontSize:8,color:"rgba(255,255,255,0.35)",letterSpacing:0.5}}>Last Refreshed: {lastRefreshed}</span>
             {refreshInfo&&<span style={{fontSize:8,color:"#4ADE80",letterSpacing:0.5}}>{refreshInfo}</span>}
           <div style={{width:mv?38:50,aspectRatio:"48/55",marginTop:2,backgroundImage:`url(${PANTHER_EMBOSS})`,backgroundSize:"100% 100%",mixBlendMode:"soft-light",opacity:0.95,WebkitMaskImage:"radial-gradient(ellipse at center, rgba(0,0,0,1) 58%, rgba(0,0,0,0) 94%)",maskImage:"radial-gradient(ellipse at center, rgba(0,0,0,1) 58%, rgba(0,0,0,0) 94%)",pointerEvents:"none"}}/>
