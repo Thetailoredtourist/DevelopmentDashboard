@@ -53,6 +53,12 @@ export async function POST(req) {
       return Response.json({ ok: true, token: tok, name: coach.name, isAdmin: coach.is_admin });
     }
 
+    // --- health check: confirms env vars + database connectivity ---
+    if (action === "ping") {
+      await sql`select 1`;
+      return Response.json({ ok: true, db: true });
+    }
+
     // --- reads are open so the dashboard always displays ---
     if (action === "get") {
       if (!validKey(key)) return Response.json({ error: "bad key" }, { status: 400 });
