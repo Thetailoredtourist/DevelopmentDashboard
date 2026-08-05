@@ -95,9 +95,12 @@ export async function POST(req) {
       if (serialized == null || serialized.length > MAX_VALUE_CHARS) {
         return Response.json({ ok: false, error: "value too large" }, { status: 413 });
       }
+      // Always send pre-serialized JSON with an explicit ::jsonb cast.
+      // The driver otherwise mis-types plain strings and JS arrays, which
+      // made writes of journeys (arrays) and the refresh date (string) fail.
       await sql`
         insert into coaching_store (key, value, updated_by)
-        values (${key}, ${value}, ${session.name})
+        values (${key}, ${serialized}::jsonb, ${session.name})
         on conflict (key) do update set value = excluded.value, updated_by = excluded.updated_by`;
       return Response.json({ ok: true });
     }

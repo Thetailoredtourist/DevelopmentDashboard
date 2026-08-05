@@ -364,7 +364,7 @@ const storage={
       try{
         const r=await fetch("/api/store",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"get",key:k})});
         const d=await r.json();
-        const v=(!d||d.value==null)?null:(typeof d.value==="string"?d.value:JSON.stringify(d.value));
+        const v=(!d||d.value==null)?null:JSON.stringify(d.value);// uniform: stored strings come back quoted so JSON.parse round-trips
         __storeCache.set(k,{v,ts:Date.now()});
         return v==null?null:{value:v};
       }catch{return null;}
@@ -389,7 +389,7 @@ const storage={
       const d=await r.json();
       const map={};
       for(const rec of (d&&d.records)||[]){
-        const v=rec.value==null?null:(typeof rec.value==="string"?rec.value:JSON.stringify(rec.value));
+        const v=rec.value==null?null:JSON.stringify(rec.value);
         __storeCache.set(rec.key,{v,ts:Date.now()});
         map[rec.key]=v;
       }
