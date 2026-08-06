@@ -42,7 +42,7 @@ const salesBudgetFill=(r)=>{if(!isFinite(r)||r<=0)return 0;if(r<1)return r*67;if
 const salesBudgetColor=(r)=>{if(r<0.5)return C.red;if(r<0.75)return C.amber;if(r<1)return C.yellow;if(r<1.2)return C.green;return C.greenDk;};
 const salesBudgetGrad=(r)=>{if(r<0.5)return`linear-gradient(90deg,${C.red},${C.amber})`;if(r<0.75)return`linear-gradient(90deg,${C.amber},${C.yellow})`;if(r<1)return`linear-gradient(90deg,${C.yellow},${C.greenLt})`;if(r<1.1)return C.green;if(r<1.2)return`linear-gradient(90deg,${C.green},${C.greenDk})`;return C.greenDk;};
 const tierMeta={
-  prospect:{label:"DEVELOPMENT CANDIDATE",color:C.purple,hex:0x9B5DE5,icon:"\u25CB",radius:7.6,tiltX:0.5,tiltZ:0.18,speed:0.22},
+  prospect:{label:"DEVELOPMENT",color:"#C0C0C0",hex:0xC0C0C0,icon:"\u25CB",radius:7.6,tiltX:0.5,tiltZ:0.18,speed:0.22},
   star:{label:"SUPERSTAR",color:C.purple,hex:0x9B5DE5,icon:"\u2605",radius:2.8,tiltX:0.35,tiltZ:0,speed:0.4},
   growth:{label:"GROWTH",color:C.green,hex:0x4CAF50,icon:"\u25B2",radius:4.0,tiltX:-0.2,tiltZ:0.85,speed:-0.3},
   watch:{label:"WATCH",color:C.amber,hex:0xF5922A,icon:"\u25C6",radius:5.2,tiltX:0.7,tiltZ:-0.4,speed:0.22},
@@ -1084,15 +1084,15 @@ export default function ADP(){
     try{const raw=localStorage.getItem("effy_session");if(raw){const sess=JSON.parse(raw);if(sess&&sess.token&&sess.exp&&Date.now()<sess.exp){window.__coachToken=sess.token;window.__coachName=sess.name;setCoach({name:sess.name,isAdmin:sess.isAdmin});setIsAdmin(!!sess.isAdmin);}else{localStorage.removeItem("effy_session");setShowPwPrompt(true);}}else{setShowPwPrompt(true);}}catch{setShowPwPrompt(true);}
   },[]);
   useEffect(()=>{const upd={...devMeta};let changed=false;Object.entries(statusOverrides).forEach(([n,st])=>{if(st==="Development"&&!upd[n]){upd[n]={devStart:new Date().toISOString(),offSince:null};changed=true;}});if(changed){setDevMeta(upd);saveDevMeta(upd);}},[statusOverrides,devMeta]);
-  const getStatus=(c)=>c&&c.isProspect?"Development Candidate":(statusOverrides[c.name]!==undefined?statusOverrides[c.name]:(lifecycleOf(c)==="active"?"Active":"Not Active"));
-  const stateOf=(c)=>{if(c&&c.isProspect)return"prospect";const ov=statusOverrides[c.name];if(ov==="Active")return"active";if(ov==="Not Active")return"grey";if(ov==="Development")return"development";return lifecycleOf(c);};
+  const getStatus=(c)=>c&&c.isProspect?"Development":(statusOverrides[c.name]!==undefined?statusOverrides[c.name]:(lifecycleOf(c)==="active"?"Active":"Not Active"));
+  const stateOf=(c)=>{if(c&&c.isProspect)return"development";const ov=statusOverrides[c.name];if(ov==="Active")return"active";if(ov==="Not Active")return"grey";if(ov==="Development")return"development";return lifecycleOf(c);};
   const toggleStatus=async(c)=>{const cur=getStatus(c);const next=cur==="Active"?"Not Active":cur==="Not Active"?"Development":"Active";const upd={...statusOverrides,[c.name]:next};setStatusOverrides(upd);await saveOverrides(upd);
     const now=Date.now();const dm={...devMeta};const old=dm[c.name];
     if(next==="Development"){const withinGrace=old&&old.devStart&&old.offSince&&(now-new Date(old.offSince).getTime()<=86400000);dm[c.name]={devStart:withinGrace?old.devStart:new Date(now).toISOString(),offSince:null};setDevMeta(dm);await saveDevMeta(dm);}
     else if(cur==="Development"){if(old&&old.devStart){if(now-new Date(old.devStart).getTime()<86400000){delete dm[c.name];}else{dm[c.name]={...old,offSince:new Date(now).toISOString()};}setDevMeta(dm);await saveDevMeta(dm);}}
   };
   const DEV_DAY=86400000;
-  const effIsDev=(c)=>{const dm=devMeta[c.name];if(statusOverrides[c.name]==="Development")return !!(dm&&dm.devStart&&(Date.now()-new Date(dm.devStart).getTime()>=DEV_DAY));return !!(dm&&dm.devStart&&dm.offSince&&(Date.now()-new Date(dm.offSince).getTime()<=DEV_DAY)&&(new Date(dm.offSince).getTime()-new Date(dm.devStart).getTime()>=DEV_DAY));};
+  const effIsDev=(c)=>{if(c&&c.isProspect)return true;/* development candidates are in the cohort by definition */const dm=devMeta[c.name];if(statusOverrides[c.name]==="Development")return !!(dm&&dm.devStart&&(Date.now()-new Date(dm.devStart).getTime()>=DEV_DAY));return !!(dm&&dm.devStart&&dm.offSince&&(Date.now()-new Date(dm.offSince).getTime()<=DEV_DAY)&&(new Date(dm.offSince).getTime()-new Date(dm.devStart).getTime()>=DEV_DAY));};
   const devWindow=(c)=>{const dm=devMeta[c.name];const rows=(c.weekly||[]).filter(w=>!w.nb);if(!rows.length)return null;let use=rows;
     if(dm&&dm.devStart&&(Date.now()-new Date(dm.devStart).getTime()>7*DEV_DAY)){const cutoff=dm.devStart.slice(0,10);const wRows=rows.filter(w=>w.date&&w.date>=cutoff);if(!wRows.length)return null;use=wRows;}
     let sd=0,gap=0,u=0,tr=0;use.forEach(w=>{sd+=(w.sd||0);gap+=(w.gap||0);u+=(w.u||0);tr+=(w.tr||0);});const bud=sd-gap;
@@ -1103,7 +1103,7 @@ export default function ADP(){
   // feature works, while isProspect keeps them out of performance maths.
   const prospectCards=useMemo(()=>prospects.map(pr=>({
     name:pr.name,org:pr.org||"",ship:pr.ship||"",isProspect:true,
-    status:"Development Candidate",greyOut:false,module:"Unknown",mc:0,
+    status:"Development",greyOut:false,module:"Unknown",mc:0,
     acc:{sp:0,vs:0,aur:0,atv:0,sd:0,gap:0,tr:0,u:0,upt:0},
     mtd:{sp:0,sd:0,gap:0,month:""},wkAvg:{sp:0,vs:0,aur:0,atv:0},
     traj:0,trajD:0,growth:0,tier:"growth",monthly:{},weekly:[],ms:[],shipMove:null,
@@ -1133,7 +1133,7 @@ export default function ADP(){
   const closeProfile=useCallback(()=>{setSelected(null);setTab(profileOrigin);},[profileOrigin]);
   const debriefs=useMemo(()=>{const now=getESTNow().getTime();const cut=14*86400000;const out=[];activePool.forEach(c=>{const wk=(c.weekly||[]).filter(w=>!w.nb);if(!wk.length)return;const last=wk[wk.length-1];const end=voyEndDate(last);if(!end)return;const et=new Date(end+"T00:00:00").getTime();if(isNaN(et)||et>now||now-et>cut)return;const prev=wk.length>1?wk[wk.length-2]:null;out.push({c,ship:getShip(c),end,sp:last.sp||0,dSp:prev?Math.round(((last.sp||0)-(prev.sp||0))*10)/10:null,sd:last.sd||0});});out.sort((a,b)=>b.end.localeCompare(a.end));return out;},[activePool,dayStamp]);
   useEffect(()=>{let live=true;(async()=>{const map={};await storage.getPrefix("spine:");for(const d of debriefs){try{const sp=await loadSpine(d.c.name);const le=sp&&sp.length?sp[sp.length-1]:null;if(le&&le.date){const t=new Date(le.date).getTime();if(!isNaN(t)&&t>=new Date(d.end+"T00:00:00").getTime())map[d.c.name]=true;}}catch{}}if(live)setDebriefCoached(map);})();return()=>{live=false;};},[debriefs]);
-  const navProfile=(dir)=>{if(!selected)return;const idx=profilePool.findIndex(c=>c.name===selected.name);const next=idx+dir;if(next>=0&&next<profilePool.length)setSelected(profilePool[next]);};
+  const navProfile=(dir)=>{if(!selected)return;const idx=profilePool.findIndex(c=>c.name===selected.name);const next=idx+dir;if(next>=0&&next<profilePool.length){pendingTabRef.current=profileTab;/* stay on the tab the user is reading */setSelected(profilePool[next]);}};
   const selIdx=selected?profilePool.findIndex(c=>c.name===selected.name):-1;
   const addNote=async()=>{if(!noteText.trim())return;const entry={text:noteText.trim(),date:new Date().toISOString().slice(0,10)};const updated=[...notes,entry];setNotes(updated);await saveNotes(selected.name,updated);setNoteText("");};
   const addRP=async()=>{if(!rpText.trim())return;const entry={text:rpText.trim(),date:new Date().toISOString().slice(0,10),score:rpScore};const updated=[...rpEntries,entry];setRpEntries(updated);await saveRP(selected.name,updated);setRpText("");setRpScore(5);};
@@ -1217,7 +1217,7 @@ export default function ADP(){
           <div><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={{fontSize:9,letterSpacing:2.5,color:tm.color,fontWeight:700}}>{tm.icon} {tm.label}</span><button onClick={()=>toggleStatus(c)} style={{fontSize:8,padding:"2px 8px",borderRadius:4,background:cStatus==="Active"?C.green+"18":cStatus==="Development"?C.purple+"18":C.red+"18",color:cStatus==="Active"?C.green:cStatus==="Development"?C.purple:C.red,fontWeight:700,border:"none",cursor:"pointer"}}>{cStatus}</button>{(()=>{const cf=intConfidence(intSailedVoys(c).length);return cf.level<3?<span style={{fontSize:8,padding:"2px 8px",borderRadius:4,background:cf.color+"18",color:cf.color,fontWeight:700,letterSpacing:0.5}}>{cf.label}</span>:null;})()}</div>
             <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,margin:"4px 0 6px",color:C.text}}>{c.name}</h2>
             <div style={{fontSize:11,color:C.dim}}>{stateOf(c)==="active"?getShip(c):(<><div>Last Ship - {getShip(c)}</div><div style={{marginTop:1}}>{lastVoyageEndOf(c)?fmtShipDate(lastVoyageEndOf(c)):""}</div></>)}</div>{c.isProspect&&(<div style={{marginTop:4,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-              <span style={{fontSize:9,fontWeight:700,letterSpacing:0.5,padding:"3px 8px",borderRadius:4,background:C.purple+"18",color:C.purple}}>DEVELOPMENT CANDIDATE</span>
+              <span style={{fontSize:9,fontWeight:700,letterSpacing:0.5,padding:"3px 8px",borderRadius:4,background:"#C0C0C033",color:"#8A8A8A"}}>DEVELOPMENT</span>
               <span style={{fontSize:10,color:C.dim}}>Awaiting first voyage data</span>
               {coach&&<span onClick={()=>removeProspect(c.name)} title="Remove this development candidate" style={{fontSize:10,color:C.dim,cursor:"pointer",textDecoration:"underline"}} onMouseEnter={e=>{e.currentTarget.style.color=C.red;}} onMouseLeave={e=>{e.currentTarget.style.color=C.dim;}}>Remove</span>}
             </div>)}
