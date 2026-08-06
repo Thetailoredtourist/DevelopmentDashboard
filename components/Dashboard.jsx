@@ -42,6 +42,7 @@ const salesBudgetFill=(r)=>{if(!isFinite(r)||r<=0)return 0;if(r<1)return r*67;if
 const salesBudgetColor=(r)=>{if(r<0.5)return C.red;if(r<0.75)return C.amber;if(r<1)return C.yellow;if(r<1.2)return C.green;return C.greenDk;};
 const salesBudgetGrad=(r)=>{if(r<0.5)return`linear-gradient(90deg,${C.red},${C.amber})`;if(r<0.75)return`linear-gradient(90deg,${C.amber},${C.yellow})`;if(r<1)return`linear-gradient(90deg,${C.yellow},${C.greenLt})`;if(r<1.1)return C.green;if(r<1.2)return`linear-gradient(90deg,${C.green},${C.greenDk})`;return C.greenDk;};
 const tierMeta={
+  prospect:{label:"DEVELOPMENT CANDIDATE",color:C.purple,hex:0x9B5DE5,icon:"\u25CB",radius:7.6,tiltX:0.5,tiltZ:0.18,speed:0.22},
   star:{label:"SUPERSTAR",color:C.purple,hex:0x9B5DE5,icon:"\u2605",radius:2.8,tiltX:0.35,tiltZ:0,speed:0.4},
   growth:{label:"GROWTH",color:C.green,hex:0x4CAF50,icon:"\u25B2",radius:4.0,tiltX:-0.2,tiltZ:0.85,speed:-0.3},
   watch:{label:"WATCH",color:C.amber,hex:0xF5922A,icon:"\u25C6",radius:5.2,tiltX:0.7,tiltZ:-0.4,speed:0.22},
@@ -273,7 +274,7 @@ function AtomViz({onSelect,data,ombre,diamondColor,dataVersion}){
   useEffect(()=>{
     const el=mountRef.current;if(!el)return;const w=el.clientWidth;const slotH=el.clientWidth<480?320:420;const h=slotH+300;el.style.height=slotH+"px";// canvas renders 160px taller than its layout slot and overflows it invisibly: no visible boundary
     const scene=new THREE.Scene();const camera=new THREE.PerspectiveCamera(42,w/h,0.1,1000);
-    const RMAX=6.9;// largest orbital (Critical, r=6.5) plus electron body
+    const RMAX=8.0;// largest orbital (Development Candidate ring, r=7.6) plus electron body
     const cd=Math.max(16,RMAX/Math.sin((42*Math.PI/180)/2)*1.04);// sphere-fit: biggest ring provably fits at any rotation
     const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});renderer.setSize(w,h);renderer.setPixelRatio(Math.min(window.devicePixelRatio,1.5));renderer.setClearColor(0x000000,0);el.appendChild(renderer.domElement);const cv=renderer.domElement;cv.style.display="block";cv.style.position="absolute";cv.style.left="50%";cv.style.top="50%";cv.style.transform="translate(-50%,-50%)";
     scene.add(new THREE.AmbientLight(0xffffff,0.35));const dir=new THREE.DirectionalLight(0xffffff,0.8);dir.position.set(6,10,8);scene.add(dir);const dir2=new THREE.DirectionalLight(0xDBE5F5,0.4);dir2.position.set(-5,-3,6);scene.add(dir2);
@@ -293,10 +294,10 @@ function AtomViz({onSelect,data,ombre,diamondColor,dataVersion}){
     coreObj.position.y=0.15;nucGroup.add(coreObj);
     const protons=[];for(let i=0;i<8;i++){const p=new THREE.Mesh(new THREE.SphereGeometry(0.05,8,8),new THREE.MeshBasicMaterial({color:[dc.wire,dc.glow][i%2],transparent:true,opacity:0.6}));p.userData={angle:i/8*Math.PI*2,radius:1.1+Math.random()*0.3,speed:1.2+Math.random()*1.5,axisX:Math.random()*Math.PI,axisZ:Math.random()*Math.PI};nucGroup.add(p);protons.push(p);}
     scene.add(nucGroup);
-    const tiers=["star","growth","watch","critical"];const allElectrons=[];
+    const tiers=["star","growth","watch","critical","prospect"];const allElectrons=[];
     const makeLabel=(text)=>{const cv=document.createElement("canvas");cv.width=256;cv.height=128;const cx=cv.getContext("2d");cx.clearRect(0,0,256,128);cx.font="bold 58px Arial";cx.textAlign="center";cx.textBaseline="middle";cx.shadowColor="rgba(255,255,255,0.9)";cx.shadowBlur=4;cx.fillStyle="#000";cx.fillText(text,128,64);const tx=new THREE.CanvasTexture(cv);tx.minFilter=THREE.LinearFilter;const sm=new THREE.SpriteMaterial({map:tx,transparent:true,opacity:0.95,depthWrite:false,depthTest:false});const sp=new THREE.Sprite(sm);sp.renderOrder=999;return sp;};
     tiers.forEach(tierKey=>{
-      const tm=tierMeta[tierKey];const tierCands=dataRef.current.filter(c=>c.tier===tierKey);const shell=new THREE.Group();shell.rotation.x=tm.tiltX;shell.rotation.z=tm.tiltZ;
+      const tm=tierMeta[tierKey];const tierCands=tierKey==="prospect"?dataRef.current.filter(c=>c.isProspect):dataRef.current.filter(c=>!c.isProspect&&c.tier===tierKey);const shell=new THREE.Group();shell.rotation.x=tm.tiltX;shell.rotation.z=tm.tiltZ;
       const rPts=[];for(let i=0;i<=180;i++){const a=i/180*Math.PI*2;rPts.push(new THREE.Vector3(Math.cos(a)*tm.radius,0,Math.sin(a)*tm.radius));}
       const rl=new THREE.Line(new THREE.BufferGeometry().setFromPoints(rPts),new THREE.LineBasicMaterial({color:tm.hex,transparent:true,opacity:0.18,depthWrite:false}));rl.renderOrder=-1;shell.add(rl);
       [{tubeR:0.025,opacity:0.12},{tubeR:0.06,opacity:0.05},{tubeR:0.12,opacity:0.025}].forEach(gl=>{const t=new THREE.Mesh(new THREE.TorusGeometry(tm.radius,gl.tubeR,8,120),new THREE.MeshBasicMaterial({color:tm.hex,transparent:true,opacity:gl.opacity,side:THREE.DoubleSide,depthWrite:false}));t.rotation.x=Math.PI/2;t.renderOrder=-1;shell.add(t);});
@@ -567,6 +568,102 @@ async function loadRP(name){try{const r=await storage.get(`rp:${name.replace(/\s
 async function saveRP(name,notes){try{await storage.set(`rp:${name.replace(/\s+/g,"_")}`,JSON.stringify(notes));}catch{}}
 async function loadSpine(name){try{const r=await storage.get(`spine:${name.replace(/\s+/g,"_")}`);if(!r||!r.value)return[];const p=JSON.parse(r.value);return Array.isArray(p)?p:[];}catch{return[];}}
 async function saveSpine(name,entries){try{await storage.set(`spine:${name.replace(/\s+/g,"_")}`,JSON.stringify(entries));}catch{}}
+// ---- Development candidates: in the coaching cadence before they have metrics ----
+async function loadProspects(){try{const r=await storage.get("prospects_v1");if(!r||!r.value)return[];const p=JSON.parse(r.value);return Array.isArray(p)?p:[];}catch{return[];}}
+async function saveProspects(list){try{return await storage.set("prospects_v1",JSON.stringify(list));}catch{return null;}}
+async function loadMergeLog(){try{const r=await storage.get("merge_log_v1");if(!r||!r.value)return[];const p=JSON.parse(r.value);return Array.isArray(p)?p:[];}catch{return[];}}
+async function appendMergeLog(entry){try{const log=await loadMergeLog();log.push(entry);await storage.set("merge_log_v1",JSON.stringify(log));}catch{}}
+
+// Normalise a name for comparison: lowercase, strip accents and punctuation, collapse spaces.
+function normName(n){return String(n||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();}
+// Levenshtein distance, used for typo tolerance.
+function editDist(a,b){if(a===b)return 0;const m=a.length,n=b.length;if(!m)return n;if(!n)return m;let prev=Array.from({length:n+1},(_,i)=>i);for(let i=1;i<=m;i++){const cur=[i];for(let j=1;j<=n;j++){cur[j]=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+(a[i-1]===b[j-1]?0:1));}prev=cur;}return prev[n];}
+// Score two names 0..1 using token overlap (handles reordered/extra name parts) blended with edit distance (handles typos).
+function nameScore(a,b){
+  const na=normName(a),nb=normName(b);
+  if(!na||!nb)return{score:0,kind:"none"};
+  if(na===nb)return{score:1,kind:"exact"};
+  const ta=na.split(" ").filter(Boolean),tb=nb.split(" ").filter(Boolean);
+  const setA=new Set(ta),setB=new Set(tb);
+  let shared=0;setA.forEach(t=>{if(setB.has(t))shared++;});
+  const smaller=Math.min(setA.size,setB.size),larger=Math.max(setA.size,setB.size);
+  // SUBSET: every token of the shorter name appears exactly in the longer one.
+  // "Eduin Jose Cambar" vs "Eduin Jose Cambar Moncada", or a reordering of it.
+  // Safe to trust: nothing is misspelled, the pipeline simply carries more name parts.
+  if(shared===smaller&&smaller>=2)return{score:0.97,kind:"subset"};
+  // TYPO: same number of tokens, all but one identical, the odd one within 1 edit.
+  // Risky when it lands on a surname (Gonzales/Gonzalez can be two real people),
+  // so this is reported as a near-match for a human to confirm, never auto-merged.
+  if(setA.size===setB.size&&shared===setA.size-1){
+    const oddA=ta.find(t=>!setB.has(t)),oddB=tb.find(t=>!setA.has(t));
+    if(oddA&&oddB&&editDist(oddA,oddB)<=1)return{score:0.80,kind:"typo"};
+  }
+  const tokenScore=larger?shared/larger:0;
+  const dist=editDist(na,nb);
+  const strScore=1-dist/Math.max(na.length,nb.length);
+  return{score:Math.max(tokenScore,strScore*0.9),kind:"partial"};
+}
+// Tiered decision, scoped to the same cruise line.
+// >=0.995 exact after normalisation -> auto merge
+// >=0.86  near-certain (typo / reordered names) -> auto merge
+// >=0.62  gray zone -> ask a human
+function matchProspect(incomingName,org,prospects){
+  let best=null,bestRes=null;
+  for(const pr of prospects){
+    if(pr.org&&org&&pr.org!==org)continue;// never match across cruise lines
+    const res=nameScore(incomingName,pr.name);
+    if(!bestRes||res.score>bestRes.score){bestRes=res;best=pr;}
+  }
+  if(!best||!bestRes)return null;
+  // Auto-merge only where the evidence is unambiguous: an exact name, or the
+  // prospect's full name contained in the incoming name (added/reordered parts).
+  if(bestRes.kind==="exact")return{prospect:best,score:bestRes.score,tier:"auto",kind:bestRes.kind};
+  if(bestRes.kind==="subset")return{prospect:best,score:bestRes.score,tier:"auto",kind:bestRes.kind};
+  // Spelling differences always get a human decision, because a single changed
+  // letter can distinguish two genuinely different people.
+  if(bestRes.kind==="typo")return{prospect:best,score:bestRes.score,tier:"review",kind:bestRes.kind};
+  if(bestRes.score>=0.62)return{prospect:best,score:bestRes.score,tier:"review",kind:bestRes.kind};
+  return null;
+}
+
+// Move a prospect's coaching record onto the name the Excel pipeline delivers.
+async function migrateCoachingRecords(fromName,toName){
+  if(normName(fromName)===normName(toName))return true;
+  const key=(n)=>String(n).replace(/\s+/g,"_");
+  const moved=[];
+  for(const prefix of ["spine","fb","rp"]){
+    try{
+      const src=await storage.get(prefix+":"+key(fromName));
+      if(src&&src.value){
+        const incoming=JSON.parse(src.value);
+        let merged=incoming;
+        const dst=await storage.get(prefix+":"+key(toName));
+        if(dst&&dst.value){// destination already has entries: combine, oldest first
+          try{const existing=JSON.parse(dst.value);
+            if(Array.isArray(existing)&&Array.isArray(incoming)){
+              merged=[...existing,...incoming].sort((a,b)=>String(a.date||"").localeCompare(String(b.date||"")));
+            }
+          }catch{}
+        }
+        const ok=await storage.set(prefix+":"+key(toName),JSON.stringify(merged));
+        if(ok)moved.push(prefix);
+      }
+    }catch{}
+  }
+  // group memberships follow the person
+  try{
+    const groups=await loadGroupDev();
+    let touched=false;
+    for(const g of groups){
+      if(Array.isArray(g.members)&&g.members.includes(fromName)){
+        g.members=g.members.map(m=>m===fromName?toName:m).filter((m,i,arr)=>arr.indexOf(m)===i);touched=true;
+      }
+    }
+    if(touched)await saveGroupDev(groups);
+  }catch{}
+  return moved.length>=0;
+}
+
 async function loadGroupDev(){try{const r=await storage.get("group_dev_v1");if(!r||!r.value)return[];const p=JSON.parse(r.value);return Array.isArray(p)?p:[];}catch{return[];}}
 async function saveGroupDev(groups){try{await storage.set("group_dev_v1",JSON.stringify(groups));}catch{}}
 async function loadOverrides(){try{const r=await storage.get("status_overrides");return r?JSON.parse(r.value):{};}catch{return{};}}
@@ -877,11 +974,41 @@ export default function ADP(){
   const[sortKey,setSortKey]=useState("sp");const[sortDir,setSortDir]=useState("desc");
   const[activeOrg,setActiveOrg]=useState(0);
   const[candidateData,setCandidateData]=useState(candidates);
-  const[dataVersion,setDataVersion]=useState(0);// bumps when the dataset itself changes (upload or shared load) so the atom rebuilds
+  const[dataVersion,setDataVersion]=useState(0);
+  const[prospects,setProspects]=useState([]);// development candidates (coaching before metrics)
+  const[showAddProspect,setShowAddProspect]=useState(false);
+  const[newProspect,setNewProspect]=useState({name:"",org:""});
+  const[mergeQueue,setMergeQueue]=useState(null);// {items:[{incomingName,prospect,score}],checked:{}}// bumps when the dataset itself changes (upload or shared load) so the atom rebuilds
   const[fleetMaxData,setFleetMaxData]=useState(typeof FLEET_MAX_SALES!=="undefined"?FLEET_MAX_SALES:{});
   const orgs=useMemo(()=>buildOrgs(candidateData),[candidateData]);
   const fileInputRef=useRef(null);
-  const handleRefreshFile=async(e)=>{const file=e.target.files&&e.target.files[0];if(!file){return;}const nm=(file.name||"").toLowerCase();if(!nm.endsWith(".xlsx")&&!nm.endsWith(".xls")){setRefreshInfo("");alert("Please upload an Excel file (.xlsx). That file type was not recognized.");e.target.value="";return;}setRefreshInfo("Reading "+file.name+" ...");try{const parsed=await parseExcelFile(file);if(parsed&&Array.isArray(parsed.candidates)&&parsed.candidates.length){const prevCount=candidateData.length;setCandidateData(parsed.candidates);if(parsed.fleetMax)setFleetMaxData(parsed.fleetMax);const d=new Date();const refStamp=d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});setLastRefreshed(refStamp);try{await storage.set("last_refreshed",JSON.stringify(refStamp));}catch{}let latest="";for(const c of parsed.candidates){const md=lastMetricDate(c);if(md&&md>latest)latest=md;}const moves=parsed.candidates.filter(c=>c.shipMove).length;const orgN=new Set(parsed.candidates.map(c=>c.org)).size;const delta=parsed.candidates.length-prevCount;setRefreshInfo(parsed.candidates.length+" candidates"+(delta?" ("+(delta>0?"+":"")+delta+")":"")+" across "+orgN+" lines"+(latest?", through "+new Date(latest+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}):"")+(moves?", "+moves+" ship moves":""));setDataVersion(v=>v+1);try{const saved=await storage.set("dataset_v1",JSON.stringify({candidates:parsed.candidates,fleetMax:parsed.fleetMax||null,savedAt:Date.now()}));if(!saved){alert("Metrics loaded on THIS tab, but could not be saved to the shared database. Other coaches will still see the old data. Make sure you are signed in, then refresh again.");}}catch(e){alert("Metrics loaded on THIS tab, but could not be saved to the shared database. Other coaches will still see the old data. Make sure you are signed in, then refresh again.");}setActiveOrg(0);setSelected(null);setGroupView&&setGroupView(null);setTierFilter&&setTierFilter("all");setSearch&&setSearch("");}else{setRefreshInfo("");alert("No candidate rows were found in that file. Check that it has the RCI, CCL, NCL, or PCL sheets in the usual pivot layout.");}}catch(err){console.error("Refresh failed:",err);alert("Could not read that file. Make sure it is the Ambassador Stats export.");}e.target.value="";};
+  const handleRefreshFile=async(e)=>{const file=e.target.files&&e.target.files[0];if(!file){return;}const nm=(file.name||"").toLowerCase();if(!nm.endsWith(".xlsx")&&!nm.endsWith(".xls")){setRefreshInfo("");alert("Please upload an Excel file (.xlsx). That file type was not recognized.");e.target.value="";return;}setRefreshInfo("Reading "+file.name+" ...");try{const parsed=await parseExcelFile(file);if(parsed&&Array.isArray(parsed.candidates)&&parsed.candidates.length){const prevCount=candidateData.length;setCandidateData(parsed.candidates);if(parsed.fleetMax)setFleetMaxData(parsed.fleetMax);const d=new Date();const refStamp=d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});setLastRefreshed(refStamp);try{await storage.set("last_refreshed",JSON.stringify(refStamp));}catch{}let latest="";for(const c of parsed.candidates){const md=lastMetricDate(c);if(md&&md>latest)latest=md;}const moves=parsed.candidates.filter(c=>c.shipMove).length;const orgN=new Set(parsed.candidates.map(c=>c.org)).size;const delta=parsed.candidates.length-prevCount;setRefreshInfo(parsed.candidates.length+" candidates"+(delta?" ("+(delta>0?"+":"")+delta+")":"")+" across "+orgN+" lines"+(latest?", through "+new Date(latest+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}):"")+(moves?", "+moves+" ship moves":""));setDataVersion(v=>v+1);
+    try{
+      const plist=await loadProspects();
+      if(plist.length){
+        const autos=[],reviews=[];
+        for(const inc of parsed.candidates){
+          const m=matchProspect(inc.name,inc.org,plist);
+          if(!m)continue;
+          if(m.tier==="auto")autos.push({incomingName:inc.name,prospect:m.prospect,score:m.score});
+          else reviews.push({incomingName:inc.name,prospect:m.prospect,score:m.score});
+        }
+        for(const a of autos){
+          await migrateCoachingRecords(a.prospect.name,a.incomingName);
+          await appendMergeLog({from:a.prospect.name,to:a.incomingName,score:a.score,by:coach?coach.name:"upload",at:new Date().toISOString(),auto:true});
+        }
+        if(autos.length){
+          const done=new Set(autos.map(a=>a.prospect.name));
+          const remaining=plist.filter(pr=>!done.has(pr.name));
+          setProspects(remaining);await saveProspects(remaining);
+        }else{setProspects(plist);}
+        if(reviews.length){
+          const checked={};reviews.forEach((_,i)=>{checked[i]=false;});
+          setMergeQueue({items:reviews,checked});
+        }
+      }
+    }catch(e){console.warn("Prospect merge check failed:",e);}
+    try{const saved=await storage.set("dataset_v1",JSON.stringify({candidates:parsed.candidates,fleetMax:parsed.fleetMax||null,savedAt:Date.now()}));if(!saved){alert("Metrics loaded on THIS tab, but could not be saved to the shared database. Other coaches will still see the old data. Make sure you are signed in, then refresh again.");}}catch(e){alert("Metrics loaded on THIS tab, but could not be saved to the shared database. Other coaches will still see the old data. Make sure you are signed in, then refresh again.");}setActiveOrg(0);setSelected(null);setGroupView&&setGroupView(null);setTierFilter&&setTierFilter("all");setSearch&&setSearch("");}else{setRefreshInfo("");alert("No candidate rows were found in that file. Check that it has the RCI, CCL, NCL, or PCL sheets in the usual pivot layout.");}}catch(err){console.error("Refresh failed:",err);alert("Could not read that file. Make sure it is the Ambassador Stats export.");}e.target.value="";};
   const[lastRefreshed,setLastRefreshed]=useState("Jun 18, 2026");const[refreshInfo,setRefreshInfo]=useState("");
   // Perpetual EST clock: ticks every second so day-measured metrics stay anchored to EST.
   const[estNow,setEstNow]=useState(()=>getESTNow());
@@ -951,13 +1078,14 @@ export default function ADP(){
   const[goalTier,setGoalTier]=useState({});// name -> target sp
 
   useEffect(()=>{loadOverrides().then(o=>setStatusOverrides(o));loadDevMeta().then(m=>setDevMeta(m));loadLedger().then(l=>setLedger(l));(async()=>{try{const r=await storage.get("last_refreshed");if(r&&r.value){const v=JSON.parse(r.value);if(v)setLastRefreshed(v);}}catch{}})();
+    (async()=>{try{const pl=await loadProspects();if(pl.length)setProspects(pl);}catch{}})();
     (async()=>{try{const r=await storage.get("dataset_v1");if(r&&r.value){const ds=JSON.parse(r.value);if(ds&&Array.isArray(ds.candidates)&&ds.candidates.length){setCandidateData(ds.candidates);if(ds.fleetMax)setFleetMaxData(ds.fleetMax);setDataVersion(v=>v+1);}}}catch(e){console.warn("Shared dataset load failed:",e);}})();
     (async()=>{try{const r=await fetch("/api/store",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"ping"})});const d=await r.json();if(!d||!d.ok){console.warn("EFFY Dashboard: shared database NOT reachable. Check Vercel env vars DATABASE_URL + SESSION_SECRET and that schema.sql ran in Neon.");}else{console.log("EFFY Dashboard: shared database connected.");}}catch(e){console.warn("EFFY Dashboard: shared database NOT reachable:",e);}})();
     try{const raw=localStorage.getItem("effy_session");if(raw){const sess=JSON.parse(raw);if(sess&&sess.token&&sess.exp&&Date.now()<sess.exp){window.__coachToken=sess.token;window.__coachName=sess.name;setCoach({name:sess.name,isAdmin:sess.isAdmin});setIsAdmin(!!sess.isAdmin);}else{localStorage.removeItem("effy_session");setShowPwPrompt(true);}}else{setShowPwPrompt(true);}}catch{setShowPwPrompt(true);}
   },[]);
   useEffect(()=>{const upd={...devMeta};let changed=false;Object.entries(statusOverrides).forEach(([n,st])=>{if(st==="Development"&&!upd[n]){upd[n]={devStart:new Date().toISOString(),offSince:null};changed=true;}});if(changed){setDevMeta(upd);saveDevMeta(upd);}},[statusOverrides,devMeta]);
-  const getStatus=(c)=>statusOverrides[c.name]!==undefined?statusOverrides[c.name]:(lifecycleOf(c)==="active"?"Active":"Not Active");
-  const stateOf=(c)=>{const ov=statusOverrides[c.name];if(ov==="Active")return"active";if(ov==="Not Active")return"grey";if(ov==="Development")return"development";return lifecycleOf(c);};
+  const getStatus=(c)=>c&&c.isProspect?"Development Candidate":(statusOverrides[c.name]!==undefined?statusOverrides[c.name]:(lifecycleOf(c)==="active"?"Active":"Not Active"));
+  const stateOf=(c)=>{if(c&&c.isProspect)return"prospect";const ov=statusOverrides[c.name];if(ov==="Active")return"active";if(ov==="Not Active")return"grey";if(ov==="Development")return"development";return lifecycleOf(c);};
   const toggleStatus=async(c)=>{const cur=getStatus(c);const next=cur==="Active"?"Not Active":cur==="Not Active"?"Development":"Active";const upd={...statusOverrides,[c.name]:next};setStatusOverrides(upd);await saveOverrides(upd);
     const now=Date.now();const dm={...devMeta};const old=dm[c.name];
     if(next==="Development"){const withinGrace=old&&old.devStart&&old.offSince&&(now-new Date(old.offSince).getTime()<=86400000);dm[c.name]={devStart:withinGrace?old.devStart:new Date(now).toISOString(),offSince:null};setDevMeta(dm);await saveDevMeta(dm);}
@@ -971,11 +1099,20 @@ export default function ADP(){
     return{sd,gapTot:gap,uTot:u,trTot:tr,sp:bud?gap/bud*100:0,aur:u?sd/u:0,tr:use.length?tr/use.length:0,u:use.length?u/use.length:0,upt:tr?u/tr:0,n:use.length};};
 
   const org=orgs[activeOrg];
-  const pool=useMemo(()=>candidateData.filter(org.filter),[activeOrg,candidateData]);
+  // Prospects become real candidate objects with empty metrics so every coaching
+  // feature works, while isProspect keeps them out of performance maths.
+  const prospectCards=useMemo(()=>prospects.map(pr=>({
+    name:pr.name,org:pr.org||"",ship:pr.ship||"",isProspect:true,
+    status:"Development Candidate",greyOut:false,module:"Unknown",mc:0,
+    acc:{sp:0,vs:0,aur:0,atv:0,sd:0,gap:0,tr:0,u:0,upt:0},
+    mtd:{sp:0,sd:0,gap:0,month:""},wkAvg:{sp:0,vs:0,aur:0,atv:0},
+    traj:0,trajD:0,growth:0,tier:"growth",monthly:{},weekly:[],ms:[],shipMove:null,
+  })),[prospects]);
+  const pool=useMemo(()=>[...candidateData.filter(org.filter),...prospectCards.filter(p=>!p.org||org.filter(p))],[activeOrg,candidateData,prospectCards,org]);
   // Active-only pool drives the Overview metric strip. Reacts to status overrides,
   // so when an inactive ambassador is marked Active their data folds in automatically.
-  const activePool=useMemo(()=>pool.filter(c=>stateOf(c)==="active"),[pool,statusOverrides,dayStamp]);
-  const listPool=useMemo(()=>pool.filter(c=>stateOf(c)!=="dormant"),[pool,statusOverrides,dayStamp]);
+  const activePool=useMemo(()=>pool.filter(c=>!c.isProspect&&stateOf(c)==="active"),[pool,statusOverrides,dayStamp]);// prospects excluded from fleet metrics
+  const listPool=useMemo(()=>pool.filter(c=>c.isProspect||stateOf(c)!=="dormant"),[pool,statusOverrides,dayStamp]);// prospects always listed
   const devPool=useMemo(()=>pool.filter(effIsDev),[pool,statusOverrides,devMeta,dayStamp]);
   const digest=useMemo(()=>intDigest(activePool),[activePool]);
   const moversList=useMemo(()=>intMovers(activePool),[activePool]);
@@ -1000,6 +1137,37 @@ export default function ADP(){
   const selIdx=selected?profilePool.findIndex(c=>c.name===selected.name):-1;
   const addNote=async()=>{if(!noteText.trim())return;const entry={text:noteText.trim(),date:new Date().toISOString().slice(0,10)};const updated=[...notes,entry];setNotes(updated);await saveNotes(selected.name,updated);setNoteText("");};
   const addRP=async()=>{if(!rpText.trim())return;const entry={text:rpText.trim(),date:new Date().toISOString().slice(0,10),score:rpScore};const updated=[...rpEntries,entry];setRpEntries(updated);await saveRP(selected.name,updated);setRpText("");setRpScore(5);};
+  const addProspect=async()=>{
+    if(!coach){setLoginErr("");setShowPwPrompt(true);return;}
+    const nm=(newProspect.name||"").trim();
+    if(!nm)return;
+    const dupe=[...prospects,...candidateData].some(c=>normName(c.name)===normName(nm));
+    if(dupe){alert("A candidate with that name already exists on the dashboard.");return;}
+    const next=[...prospects,{name:nm,org:newProspect.org||"",addedBy:coach.name,addedAt:new Date().toISOString().slice(0,10)}];
+    setProspects(next);setNewProspect({name:"",org:""});setShowAddProspect(false);
+    const ok=await saveProspects(next);
+    if(!ok)alert("Added on this screen, but could not save to the shared database. Check that you are signed in.");
+  };
+  const removeProspect=async(nm)=>{
+    if(!coach){setLoginErr("");setShowPwPrompt(true);return;}
+    if(!window.confirm("Are you sure?"))return;
+    const next=prospects.filter(p=>p.name!==nm);
+    setProspects(next);setSelected(null);
+    const ok=await saveProspects(next);
+    if(!ok)alert("Removed on this screen, but could not save to the shared database. Check that you are signed in.");
+  };
+  const confirmMerges=async()=>{
+    if(!mergeQueue)return;
+    const approved=mergeQueue.items.filter((it,i)=>mergeQueue.checked[i]);
+    for(const it of approved){
+      await migrateCoachingRecords(it.prospect.name,it.incomingName);
+      await appendMergeLog({from:it.prospect.name,to:it.incomingName,score:it.score,by:coach?coach.name:"unknown",at:new Date().toISOString()});
+    }
+    const approvedNames=new Set(approved.map(a=>a.prospect.name));
+    const next=prospects.filter(p=>!approvedNames.has(p.name));
+    setProspects(next);await saveProspects(next);
+    setMergeQueue(null);
+  };
   const removeSpineEntry=async(idx)=>{if(!coach){setLoginErr("");setShowPwPrompt(true);return;}const e=spine[idx];if(!e)return;if(!window.confirm(`Remove Entry ${idx+1} (${e.date||"no date"}) from ${selected.name}'s journey? This cannot be undone.`))return;const next=spine.filter((_,x)=>x!==idx);setSpine(next);setExpandedEntry(null);const ok=await (async()=>{try{return await storage.set(`spine:${selected.name.replace(/\s+/g,"_")}`,JSON.stringify(next));}catch{return null;}})();if(!ok){alert("Could not save the removal to the shared database. The entry may reappear on reload. Check that you are signed in.");}};
   const runFeedback=async()=>{if(!coach){setLoginErr("");setShowPwPrompt(true);return;}setCLoading(true);setCoaching("");setFbSaved(false);const r=await callDashbot(selected,notes,rpEntries,spine,ledger);const feedbackText=typeof r==="string"?r:r.text;setCoaching(feedbackText);const ok=(r&&typeof r==="object"&&r.ok)||(feedbackText&&!feedbackText.startsWith("Connection")&&!feedbackText.startsWith("Unable")&&!feedbackText.startsWith("Coaching service")&&!feedbackText.startsWith("Could not"));if(ok&&feedbackText){setFbSaved(true);const entry={date:new Date().toISOString().slice(0,10),feedback:feedbackText,focus:r.focus||"",directive:r.directive||"",phase:r.phase||"",rootCause:r.rootCause||"",drill:r.drill||"",question:r.question||"",metrics:{sp:selected.acc.sp,vs:selected.acc.vs,aur:selected.acc.aur,atv:selected.acc.atv},tier:selected.tier,notesCount:notes.length,rpCount:rpEntries.length};const updated=[...spine,entry];setSpine(updated);await saveSpine(selected.name,updated);const pattern=detectPattern(updated,selected);if(pattern){const updLedger={...ledger};if(pattern.type==="success"){updLedger.successes=[...updLedger.successes.slice(-20),pattern];}else{updLedger.patterns=[...updLedger.patterns.slice(-20),pattern];}setLedger(updLedger);await saveLedger(updLedger);}}setCLoading(false);};
 
@@ -1048,7 +1216,12 @@ export default function ADP(){
         <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
           <div><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={{fontSize:9,letterSpacing:2.5,color:tm.color,fontWeight:700}}>{tm.icon} {tm.label}</span><button onClick={()=>toggleStatus(c)} style={{fontSize:8,padding:"2px 8px",borderRadius:4,background:cStatus==="Active"?C.green+"18":cStatus==="Development"?C.purple+"18":C.red+"18",color:cStatus==="Active"?C.green:cStatus==="Development"?C.purple:C.red,fontWeight:700,border:"none",cursor:"pointer"}}>{cStatus}</button>{(()=>{const cf=intConfidence(intSailedVoys(c).length);return cf.level<3?<span style={{fontSize:8,padding:"2px 8px",borderRadius:4,background:cf.color+"18",color:cf.color,fontWeight:700,letterSpacing:0.5}}>{cf.label}</span>:null;})()}</div>
             <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,margin:"4px 0 6px",color:C.text}}>{c.name}</h2>
-            <div style={{fontSize:11,color:C.dim}}>{stateOf(c)==="active"?getShip(c):(<><div>Last Ship - {getShip(c)}</div><div style={{marginTop:1}}>{lastVoyageEndOf(c)?fmtShipDate(lastVoyageEndOf(c)):""}</div></>)}</div>{recentShipMove(c)&&(<div style={{fontSize:10,color:C.teal,fontWeight:600,marginTop:3}}>{`Moved from ${recentShipMove(c).from} - ${recentShipMove(c).to}, ${fmtShipDate(recentShipMove(c).date)}`}</div>)}</div>
+            <div style={{fontSize:11,color:C.dim}}>{stateOf(c)==="active"?getShip(c):(<><div>Last Ship - {getShip(c)}</div><div style={{marginTop:1}}>{lastVoyageEndOf(c)?fmtShipDate(lastVoyageEndOf(c)):""}</div></>)}</div>{c.isProspect&&(<div style={{marginTop:4,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <span style={{fontSize:9,fontWeight:700,letterSpacing:0.5,padding:"3px 8px",borderRadius:4,background:C.purple+"18",color:C.purple}}>DEVELOPMENT CANDIDATE</span>
+              <span style={{fontSize:10,color:C.dim}}>Awaiting first voyage data</span>
+              {coach&&<span onClick={()=>removeProspect(c.name)} title="Remove this development candidate" style={{fontSize:10,color:C.dim,cursor:"pointer",textDecoration:"underline"}} onMouseEnter={e=>{e.currentTarget.style.color=C.red;}} onMouseLeave={e=>{e.currentTarget.style.color=C.dim;}}>Remove</span>}
+            </div>)}
+            {recentShipMove(c)&&(<div style={{fontSize:10,color:C.teal,fontWeight:600,marginTop:3}}>{`Moved from ${recentShipMove(c).from} - ${recentShipMove(c).to}, ${fmtShipDate(recentShipMove(c).date)}`}</div>)}</div>
           <div style={{textAlign:"right"}}><div style={{fontSize:9,letterSpacing:1.5,color:C.dim,marginBottom:4}}>MTD · {c.mtd.month}</div><div style={{fontSize:32,fontWeight:700,fontFamily:"'Cormorant Garamond',serif",color:metricColor(c.mtd.sp)}}>{c.mtd.sp>0?"+":""}{c.mtd.sp.toFixed(1)}%</div><div style={{fontSize:8,letterSpacing:1,color:C.dim}}>SALES VS BUDGET</div></div>
         </div>
         <div style={{marginTop:16,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
@@ -1257,6 +1430,27 @@ export default function ADP(){
 
   return(<div style={{fontFamily:"'DM Sans',sans-serif",background:C.bg,color:C.text,minHeight:"100vh"}}>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Cormorant+Garamond:wght@500;600;700&display=swap" rel="stylesheet"/>
+    {mergeQueue&&mergeQueue.items&&mergeQueue.items.length>0&&(<div style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.55)",backdropFilter:"blur(4px)",zIndex:1001,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:"#fff",borderRadius:14,padding:"24px 22px",width:520,maxWidth:"92vw",maxHeight:"80vh",overflowY:"auto",boxShadow:"0 24px 60px -12px rgba(0,0,0,0.4)"}}>
+        <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:C.text,marginBottom:4}}>Confirm candidate matches</div>
+        <div style={{fontSize:11,color:C.dim,marginBottom:14}}>New data arrived for names that closely match development candidates. Tick the ones that are the same person to merge their coaching history. Leave unticked if they are different people.</div>
+        <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:16}}>
+          {mergeQueue.items.map((it,i)=>(
+            <label key={i} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",border:`1px solid ${mergeQueue.checked[i]?C.teal:C.border}`,borderRadius:8,background:mergeQueue.checked[i]?C.tealPale:C.surface,cursor:"pointer"}}>
+              <input type="checkbox" checked={!!mergeQueue.checked[i]} onChange={()=>setMergeQueue(q=>({...q,checked:{...q.checked,[i]:!q.checked[i]}}))} style={{accentColor:C.teal,marginTop:2}}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:12,fontWeight:700,color:C.text}}>{it.prospect.name}{"  \u2192  "}{it.incomingName}</div>
+                <div style={{fontSize:10,color:C.dim,marginTop:2}}>Coaching recorded under the first name moves to the second, which is the name in the uploaded data.</div>
+              </div>
+            </label>
+          ))}
+        </div>
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+          <button onClick={()=>setMergeQueue(null)} style={{background:"none",border:`1px solid ${C.border}`,color:C.dim,fontSize:12,padding:"8px 16px",borderRadius:7,cursor:"pointer"}}>Cancel</button>
+          <button onClick={confirmMerges} style={{background:C.teal,border:"none",color:"#fff",fontSize:12,fontWeight:700,padding:"8px 18px",borderRadius:7,cursor:"pointer"}}>Proceed</button>
+        </div>
+      </div>
+    </div>)}
     {showPwPrompt&&(<div onMouseDown={e=>{if(e.target===e.currentTarget)pwDownRef.current=true;}} onMouseUp={e=>{if(e.target===e.currentTarget&&pwDownRef.current)setShowPwPrompt(false);pwDownRef.current=false;}} style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.55)",backdropFilter:"blur(4px)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <div onMouseDown={e=>e.stopPropagation()} onMouseUp={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:14,padding:"26px 24px",width:340,maxWidth:"90vw",boxShadow:"0 24px 60px -12px rgba(0,0,0,0.4)"}}>
         <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:C.text,marginBottom:4}}>Coach Sign In</div>
@@ -1411,9 +1605,23 @@ export default function ADP(){
       {/* COACHING ENGINE */}
       {tab==="coaching"&&!selected&&(<div style={{animation:"fadeUp 0.35s ease"}}>
         <div style={{fontSize:12,color:C.dim,marginBottom:14,lineHeight:1.6}}>Select any candidate for data-driven coaching, field notes and performance analysis. Cards reflect overall journey performance.</div>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search names..." style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:"100%",padding:"10px 14px",color:C.text,fontSize:12,fontFamily:"'DM Sans'",outline:"none",marginBottom:14}}/>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search names..." style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:"100%",padding:"10px 14px",color:C.text,fontSize:12,fontFamily:"'DM Sans'",outline:"none",marginBottom:10}}/>
+        {!showAddProspect?(<div style={{marginBottom:14}}><button onClick={()=>{if(!coach){setLoginErr("");setShowPwPrompt(true);return;}setShowAddProspect(true);}} style={{background:"none",border:`1px dashed ${C.teal}`,color:C.teal,fontSize:11,fontWeight:600,padding:"8px 14px",borderRadius:8,cursor:"pointer"}}>{"+ Add Development Candidate"}</button></div>):(
+        <div style={{marginBottom:14,padding:12,border:`1px solid ${C.border}`,borderRadius:8,background:C.card}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:8}}>Add Development Candidate</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+            <input value={newProspect.name} onChange={e=>setNewProspect(p=>({...p,name:e.target.value}))} onKeyDown={e=>{if(e.key==="Enter")addProspect();}} placeholder="Full name" style={{flex:1,minWidth:180,background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 12px",color:C.text,fontSize:12,outline:"none"}}/>
+            <select value={newProspect.org} onChange={e=>setNewProspect(p=>({...p,org:e.target.value}))} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 10px",color:C.text,fontSize:12,outline:"none"}}>
+              <option value="">Cruise line (optional)</option>
+              {orgs.filter(o=>o.id!=="effy").map(o=>(<option key={o.id} value={o.id}>{o.label}</option>))}
+            </select>
+            <button onClick={addProspect} style={{background:C.teal,border:"none",color:"#fff",fontSize:11,fontWeight:700,padding:"8px 16px",borderRadius:6,cursor:"pointer"}}>Add</button>
+            <button onClick={()=>{setShowAddProspect(false);setNewProspect({name:"",org:""});}} style={{background:"none",border:`1px solid ${C.border}`,color:C.dim,fontSize:11,padding:"8px 14px",borderRadius:6,cursor:"pointer"}}>Cancel</button>
+          </div>
+          <div style={{fontSize:9,color:C.dim,marginTop:8}}>They get a full coaching profile now. When their metrics arrive from the data upload, the profiles merge automatically.</div>
+        </div>)}
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(215px,1fr))",gap:10}}>
-          {(search?listPool.filter(c=>c.name.toLowerCase().includes(search.toLowerCase())):[...listPool].sort((a,b)=>{const aS=getStatus(a)==="Active"?1:0;const bS=getStatus(b)==="Active"?1:0;if(aS!==bS)return bS-aS;return (b.mtd?.sp||0)-(a.mtd?.sp||0);})).map((c,i)=>{const tm=tierMeta[c.tier];const cStatus=getStatus(c);const isActive=stateOf(c)==="active";const isGrey=stateOf(c)==="grey";const isDev=stateOf(c)==="development";const a=c.acc||{};const md=c.mtd||{};return(<Card key={i} accentColor={tm.color} onClick={()=>openProfile(c)} style={{padding:16,opacity:isActive?1:0.55}}>
+          {(search?listPool.filter(c=>c.name.toLowerCase().includes(search.toLowerCase())):[...listPool].sort((a,b)=>{const aS=getStatus(a)==="Active"?1:0;const bS=getStatus(b)==="Active"?1:0;if(aS!==bS)return bS-aS;return (b.mtd?.sp||0)-(a.mtd?.sp||0);})).map((c,i)=>{const tm=(c.isProspect?tierMeta.prospect:tierMeta[c.tier])||tierMeta.growth;const cStatus=getStatus(c);const isProspect=!!c.isProspect;const isActive=isProspect||stateOf(c)==="active";const isGrey=!isProspect&&stateOf(c)==="grey";const isDev=stateOf(c)==="development";const a=c.acc||{};const md=c.mtd||{};return(<Card key={i} accentColor={tm.color} onClick={()=>openProfile(c)} style={{padding:16,opacity:isActive?1:0.55}}>
             <div style={{display:"flex",justifyContent:"space-between"}}>
               <div style={{minWidth:0,flex:1}}><div style={{fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:C.text}}>{c.name}</div>{isGrey?(<div style={{marginTop:2}}><div style={{fontSize:10,color:C.muted}}>Last Ship - {getShip(c)}</div><div style={{fontSize:10,color:C.muted,marginTop:1}}>{lastVoyageEndOf(c)?fmtShipDate(lastVoyageEndOf(c)):""}</div></div>):(<div style={{fontSize:10,color:C.dim,marginTop:2,display:"flex",alignItems:"center",gap:4}}><div style={{width:8,height:8,borderRadius:"50%",background:isActive?C.green:isDev?C.purple:C.red,boxShadow:`0 0 6px ${isActive?C.green:isDev?C.purple:C.red}44`,display:"inline-block",flexShrink:0}}/>{cStatus}</div>)}</div>
               <div style={{textAlign:"right",flexShrink:0,marginLeft:8}}><div style={{fontSize:16,fontWeight:700,color:metricColor(md.sp||0),fontFamily:"'Cormorant Garamond',serif"}}>{(md.sp||0)>0?"+":""}{(md.sp||0).toFixed(1)}%</div><div style={{fontSize:8,letterSpacing:1,color:tm.color,fontWeight:700}}>{tm.label} · MTD</div></div>
