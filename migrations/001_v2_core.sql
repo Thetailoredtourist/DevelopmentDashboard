@@ -9,11 +9,20 @@ create extension if not exists pgcrypto;
 alter table if exists coaches add column if not exists role text;
 update coaches set role = case when is_admin then 'admin' else 'coach' end
   where role is null;
-alter table if exists coaches
-  add constraint coaches_role_check check (role in ('viewer','coach','admin')) not valid;
 
--- Recreate the helper so logins return the role as well.
-create or replace function verify_coach(p_email text, p_password text)
+-- Guarded so the whole script can be re-run safely.
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'coaches_role_check') then
+    alter table coaches
+      add constraint coaches_role_check check (role in ('viewer','coach','admin')) not valid;
+  end if;
+end $$;
+
+-- verify_coach gains a `role` column. Postgres cannot change a function's
+-- return type in place, so the old version is dropped first.
+drop function if exists verify_coach(text, text);
+create function verify_coach(p_email text, p_password text)
 returns table(email text, name text, is_admin boolean, role text) as $$
   select c.email, c.name, c.is_admin,
          coalesce(c.role, case when c.is_admin then 'admin' else 'coach' end) as role
@@ -22,10 +31,14 @@ returns table(email text, name text, is_admin boolean, role text) as $$
     and c.pass_hash = crypt(p_password, c.pass_hash);
 $$ language sql;
 
--- add_coach gains an optional role argument (old 4-arg calls still work).
-create or replace function add_coach(p_email text, p_name text, p_password text,
-                                     p_admin boolean default false,
-                                     p_role text default null)
+-- add_coach gains an optional role argument. The old 4-argument version is
+-- dropped first, otherwise a 4-argument call would match both versions and
+-- Postgres would refuse it as ambiguous.
+drop function if exists add_coach(text, text, text, boolean);
+drop function if exists add_coach(text, text, text, boolean, text);
+create function add_coach(p_email text, p_name text, p_password text,
+                          p_admin boolean default false,
+                          p_role text default null)
 returns void as $$
 begin
   insert into coaches(email, name, pass_hash, is_admin, role)

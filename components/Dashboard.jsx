@@ -2,7 +2,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback, Component } from "react";
 import * as THREE from "three";
 import { parseExcelFile } from "@/lib/parseExcel";
-import { getETNow, etClockLabel, lastTwoCompleteWeeks } from "@/lib/datetime";
+import { getETNow, etClockLabel, lastTwoCompleteWeeks, addDaysToKey } from "@/lib/datetime";
 import { PERFORMANCE_TIME_ZONE_LABEL, MONTHS_FULL, SHIP_MOVE_VISIBLE_DAYS, TRANSFER_CONTINUITY_DAYS } from "@/lib/performanceRules";
 
 /* Admin password for the data-refresh button. Only someone who enters this can
@@ -139,8 +139,82 @@ const intSailedVoys=(c)=>(c.weekly||[]).filter(w=>!w.nb);
 const intTierOf=(sp)=>sp>=20?"star":sp>=0?"growth":sp>=-25?"watch":"critical";
 // budget reconstructed from sp: budget = sales / (1 + sp/100)
 const intVoyBudget=(w)=>{if(w.nb)return 0;return (w.sd||0)-(w.gap||0);};
+// Voyages sailed on the ship the ambassador is assigned to right now, from
+// their first recorded voyage on that ship onward. Used so "Overall" variance
+// reflects the current assignment rather than a previous ship's contract.
+const intCurrentAssignmentVoys=(c)=>{
+  const all=intSailedVoys(c);
+  if(!all.length)return all;
+  const ships=all.map(w=>w.ship).filter(Boolean);
+  if(!ships.length)return all;
+  const currentShip=ships[ships.length-1];
+  // walk back to the first voyage of the current unbroken run on this ship
+  let startIdx=all.length-1;
+  for(let i=all.length-1;i>=0;i--){
+    if(all[i].ship&&all[i].ship!==currentShip)break;
+    if(all[i].ship===currentShip)startIdx=i;
+  }
+  return all.slice(startIdx);
+};
+// Aggregate a candidate's most recent COMPLETE Mon-Sun week. A voyage is
+// included when its sailing days overlap that window, so a voyage spanning the
+// week boundary still counts toward the week it sailed in.
+const weekWindowOf=(c)=>{
+  const empty={hasData:false,sp:0,aur:0,sd:0,gap:0,tr:0,u:0,upt:0,vs:0,start:"",end:"",voyages:0};
+  if(!c||!Array.isArray(c.weekly))return empty;
+  const{w1}=lastTwoCompleteWeeks();
+  const startKey=w1;const endKey=addDaysToKey(w1,6);
+  const rows=c.weekly.filter(w=>{
+    if(!w||w.nb)return false;
+    const s0=w.date;if(!s0)return false;
+    const e0=voyEndDate(w)||s0;
+    return s0<=endKey&&e0>=startKey;// any overlap with the week
+  });
+  if(!rows.length)return{...empty,start:startKey,end:endKey};
+  const rev=rows.filter(w=>!w.nr);
+  const sum=(list,f)=>list.reduce((a,w)=>a+(Number(w[f])||0),0);
+  const sd=sum(rev,"sd"),u=sum(rev,"u"),tr=sum(rev,"tr");
+  const gap=sum(rows,"gap");
+  const budget=sd-gap;
+  const vsRows=rev.filter(w=>typeof w.vs==="number");
+  return{
+    hasData:true,start:startKey,end:endKey,voyages:rows.length,
+    sp:budget>0?Math.round(((sd-budget)/budget)*1000)/10:0,
+    sd:Math.round(sd),gap:Math.round(gap),
+    aur:u?Math.round(sd/u):0,atv:tr?Math.round(sd/tr):0,
+    tr:Math.round(tr),u:Math.round(u),
+    upt:tr?Math.round((u/tr)*100)/100:0,
+    vs:vsRows.length?Math.round((vsRows.reduce((a,w)=>a+w.vs,0)/vsRows.length)*10)/10:0,
+    month:`Week of ${fmtShipDate(startKey)}`,
+  };
+};
+// Split the candidate's sailed voyages into ship assignments, newest first.
+// A new assignment begins whenever the ship changes, so a return to a previous
+// ship is its own entry rather than being merged with the earlier stint.
+const intAssignments=(c)=>{
+  const all=intSailedVoys(c);
+  if(!all.length)return[];
+  const runs=[];
+  for(const w of all){
+    const ship=w.ship||"Unknown ship";
+    const last=runs[runs.length-1];
+    if(last&&last.ship===ship)last.voyages.push(w);
+    else runs.push({ship,voyages:[w]});
+  }
+  return runs.reverse().map(r=>{
+    const sales=r.voyages.reduce((a,w)=>a+(Number(w.sd)||0),0);
+    const budget=r.voyages.reduce((a,w)=>a+intVoyBudget(w),0);
+    const dates=r.voyages.map(w=>w.date).filter(Boolean).sort();
+    const lastVoy=r.voyages[r.voyages.length-1];
+    return{
+      ship:r.ship,count:r.voyages.length,
+      start:dates[0]||"",end:(voyEndDate(lastVoy)||dates[dates.length-1]||""),
+      sales,budget,variance:sales-budget,
+    };
+  });
+};
 const intVariance=(c,scope)=>{
-  let v=intSailedVoys(c);
+  let v=scope==="overall"?intCurrentAssignmentVoys(c):intSailedVoys(c);
   if(scope==="mtd")v=v.filter(w=>w.m===c.mtd.month);
   const sales=v.reduce((a,w)=>a+w.sd,0);
   const budget=v.reduce((a,w)=>a+intVoyBudget(w),0);
@@ -1084,6 +1158,7 @@ function ADPInner(){
   const[editIdx,setEditIdx]=useState(null);const[editType,setEditType]=useState(null);const[editText,setEditText]=useState("");const[editScore,setEditScore]=useState(5);
   const[expandedEntry,setExpandedEntry]=useState(null);
   const[profileTab,setProfileTab]=useState("overview");
+  const[assignIdx,setAssignIdx]=useState(0);// 0 = current assignment, higher = earlier ships
   const pendingTabRef=useRef(null);
   const atomTouch=useRef(null);
   const[debriefCoached,setDebriefCoached]=useState({});
@@ -1239,7 +1314,7 @@ function ADPInner(){
   const filtered=useMemo(()=>{let l=effView==="development"?listPool.filter(effIsDev):[...listPool];if(statusFilter!=="all")l=l.filter(c=>getStatus(c)===statusFilter);if(tierFilter!=="all")l=l.filter(c=>c.tier===tierFilter);if(search)l=l.filter(c=>c.name.toLowerCase().includes(search.toLowerCase()));l.sort((a,b)=>{if(sortKey==="name"){const r=a.name.localeCompare(b.name);return sortDir==="desc"?-r:r;}return sortDir==="desc"?getSortVal(b)-getSortVal(a):getSortVal(a)-getSortVal(b);});return l;},[tierFilter,search,sortKey,sortDir,activeOrg,rosterView,monthsAvail,pool,listPool,statusOverrides,devMeta,dayStamp,statusFilter]);
   const profilePool=useMemo(()=>{let l=[...pool];if(tierFilter!=="all")l=l.filter(c=>c.tier===tierFilter);l.sort((a,b)=>{if(sortKey==="name"){const r=a.name.localeCompare(b.name);return sortDir==="desc"?-r:r;}return sortDir==="desc"?getSortVal(b)-getSortVal(a):getSortVal(a)-getSortVal(b);});return l;},[pool,tierFilter,sortKey,sortDir,rosterView,monthsAvail,statusOverrides,devMeta,dayStamp]);
 
-  useEffect(()=>{if(selected){loadNotes(selected.name).then(n=>setNotes(n));loadRP(selected.name).then(r=>setRpEntries(r));loadSpine(selected.name).then(s=>setSpine(s));setCoaching("");setFbSaved(false);setNoteText("");setRpText("");setRpScore(5);setProfileTab(pendingTabRef.current||"overview");pendingTabRef.current=null;}},[selected?.name]);
+  useEffect(()=>{if(selected){loadNotes(selected.name).then(n=>setNotes(n));loadRP(selected.name).then(r=>setRpEntries(r));loadSpine(selected.name).then(s=>setSpine(s));setCoaching("");setFbSaved(false);setNoteText("");setRpText("");setRpScore(5);setProfileTab(pendingTabRef.current||"overview");setAssignIdx(0);pendingTabRef.current=null;}},[selected?.name]);
   const openProfile=useCallback((c)=>{setSelected(c);setGroupView(null);setProfileOrigin(tab);},[tab]);
   const closeProfile=useCallback(()=>{setSelected(null);setTab(profileOrigin);},[profileOrigin]);
   const debriefs=useMemo(()=>{const now=getESTNow().getTime();const cut=14*86400000;const out=[];activePool.forEach(c=>{const wk=(c.weekly||[]).filter(w=>!w.nb);if(!wk.length)return;const last=wk[wk.length-1];const end=voyEndDate(last);if(!end)return;const et=new Date(end+"T00:00:00").getTime();if(isNaN(et)||et>now||now-et>cut)return;const prev=wk.length>1?wk[wk.length-2]:null;out.push({c,ship:getShip(c),end,sp:last.sp||0,dSp:prev?Math.round(((last.sp||0)-(prev.sp||0))*10)/10:null,sd:last.sd||0});});out.sort((a,b)=>b.end.localeCompare(a.end));return out;},[activePool,dayStamp]);
@@ -1333,7 +1408,7 @@ function ADPInner(){
               {coach&&<span onClick={()=>removeProspect(c.name)} title="Remove this development candidate" style={{fontSize:10,color:C.dim,cursor:"pointer",textDecoration:"underline"}} onMouseEnter={e=>{e.currentTarget.style.color=C.red;}} onMouseLeave={e=>{e.currentTarget.style.color=C.dim;}}>Remove</span>}
             </div>)}
             {recentShipMove(c)&&(<div style={{fontSize:10,color:C.teal,fontWeight:600,marginTop:3}}>{`Moved from ${recentShipMove(c).from} - ${recentShipMove(c).to}, ${fmtShipDate(recentShipMove(c).date)}`}</div>)}</div>
-          <div style={{textAlign:"right"}}><div style={{fontSize:9,letterSpacing:1.5,color:C.dim,marginBottom:4}}>MTD · {c.mtd.month}</div><div style={{fontSize:32,fontWeight:700,fontFamily:"'Cormorant Garamond',serif",color:metricColor(c.mtd.sp)}}>{c.mtd.sp>0?"+":""}{c.mtd.sp.toFixed(1)}%</div><div style={{fontSize:8,letterSpacing:1,color:C.dim}}>SALES VS BUDGET</div></div>
+          <div style={{textAlign:"right"}}>{(()=>{const wk=weekWindowOf(c);const h=wk.hasData?wk:c.mtd;return(<><div style={{fontSize:9,letterSpacing:1.5,color:C.dim,marginBottom:4}}>{wk.hasData?`WEEK OF ${fmtShipDate(wk.start).toUpperCase()}`:`MTD · ${c.mtd.month}`}</div><div style={{fontSize:32,fontWeight:700,fontFamily:"'Cormorant Garamond',serif",color:metricColor(h.sp)}}>{h.sp>0?"+":""}{(h.sp||0).toFixed(1)}%</div></>);})()}<div style={{fontSize:8,letterSpacing:1,color:C.dim}}>SALES VS BUDGET</div></div>
         </div>
         <div style={{marginTop:16,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
           <div style={{fontSize:9,letterSpacing:1.5,color:C.dim,fontWeight:600,marginBottom:6}}>WEEKLY SALES VS BUDGET</div>
@@ -1347,7 +1422,13 @@ function ADPInner(){
       </div>
 
       {/* OVERVIEW */}
-      {profileTab==="overview"&&(()=>{const acc=c.acc||{sp:0,aur:0,sd:0};const md=c.mtd||{sp:0,aur:0,sd:0,gap:0};const journeySP=md.sp;const journeyAUR=md.aur;const journeySales=md.sd;const monthBudget=(md.sd||0)-(md.gap||0);const budgetRatio=monthBudget>0?journeySales/monthBudget:(journeySales>0?1:0);return(<>
+      {profileTab==="overview"&&(()=>{const acc=c.acc||{sp:0,aur:0,sd:0};
+        // Coaching runs weekly, so the headline figures describe the most recent
+        // COMPLETE Monday-to-Sunday week. A voyage counts toward that week when
+        // any of its sailing days fall inside it.
+        const wk=weekWindowOf(c);
+        const md=wk.hasData?wk:(c.mtd||{sp:0,aur:0,sd:0,gap:0});
+        const journeySP=md.sp;const journeyAUR=md.aur;const journeySales=md.sd;const monthBudget=(md.sd||0)-(md.gap||0);const budgetRatio=monthBudget>0?journeySales/monthBudget:(journeySales>0?1:0);return(<>
         <Card accentColor={tm.color} style={{padding:20,marginBottom:14}}>
           <div style={sec}>MTD Metric Breakdown · {c.mtd.month}</div>
           {[{l:"MTD Sales Vs Budget",v:journeySP,pct:true,grad:spGrad(journeySP),col:spColor(journeySP),fill:Math.min(Math.max(journeySP,0)/40*100,100)},{l:"MTD AUR",v:journeyAUR,pct:false,grad:aurGrad(journeyAUR),col:aurColor(journeyAUR),fill:Math.min(journeyAUR/4000*100,100)},{l:"MTD Sales",v:journeySales,pct:false,grad:salesBudgetGrad(budgetRatio),col:salesBudgetColor(budgetRatio),fill:salesBudgetFill(budgetRatio)}].map((m,i)=>(<div key={i} style={{marginBottom:10}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,fontWeight:600,color:C.textSec}}>{m.l}</span><span style={{fontSize:12,fontWeight:700,color:m.col}}>{m.pct?`${m.v>0?"+":""}${m.v.toFixed(1)}%`:`$${Math.round(m.v).toLocaleString()}`}</span></div><div style={{width:"100%",height:6,background:C.surfaceAlt,borderRadius:3,overflow:"hidden"}}><div style={{width:`${m.fill}%`,height:"100%",borderRadius:3,background:m.grad,transition:"width 0.8s ease"}}/></div></div>))}
@@ -1355,10 +1436,33 @@ function ADPInner(){
         {(()=>{const dvAll=intVariance(c,"overall");const dvMtd=intVariance(c,"mtd");const fc=intForecast(c);const goal=goalTier[c.name];return(<>
         <div style={{display:"grid",gridTemplateColumns:mv?"1fr":"1fr 1fr",gap:12,marginBottom:14}}>
           <Card accentColor={C.teal} style={{padding:20}}>
-            <div style={sec}>Budget Variance · Overall</div>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0"}}><span style={{color:C.dim}}>Sold</span><b style={{color:C.text}}>{intFmtK(dvAll.sales)}</b></div>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0"}}><span style={{color:C.dim}}>Target</span><b style={{color:C.text}}>{intFmtK(dvAll.budget)}</b></div>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:14,padding:"8px 0 0",borderTop:`1px solid ${C.border}`,marginTop:4}}><span style={{color:C.textSec,fontWeight:600}}>Gap to budget</span><b style={{color:dvAll.variance>=0?C.green:C.red}}>{dvAll.variance>=0?"+":""}{intFmtK(dvAll.variance)}</b></div>
+            {(()=>{
+              /* Page back through earlier ship assignments. Index 0 is the
+                 current assignment; the arrows walk into previous ships. */
+              const runs=intAssignments(c);
+              const idx=Math.min(assignIdx,Math.max(runs.length-1,0));
+              const a=runs[idx]||{ship:getShip(c),sales:dvAll.sales,budget:dvAll.budget,variance:dvAll.variance,count:0,start:"",end:""};
+              const canPrev=idx<runs.length-1;// older
+              const canNext=idx>0;// newer
+              const arrow=(on)=>({background:"none",border:"none",padding:"0 4px",fontSize:14,lineHeight:1,
+                cursor:on?"pointer":"default",color:on?C.teal:C.faint,fontWeight:700});
+              return(<>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:2}}>
+                  <button disabled={!canPrev} title={canPrev?`Earlier assignment: ${runs[idx+1].ship}`:"No earlier assignment"} onClick={()=>canPrev&&setAssignIdx(idx+1)} style={arrow(canPrev)}>{"\u2039"}</button>
+                  <div style={{...sec,marginBottom:0,textAlign:"center",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{`Budget Variance \u00b7 ${a.ship}`}</div>
+                  <button disabled={!canNext} title={canNext?`Later assignment: ${runs[idx-1].ship}`:"This is the current assignment"} onClick={()=>canNext&&setAssignIdx(idx-1)} style={arrow(canNext)}>{"\u203A"}</button>
+                </div>
+                <div style={{fontSize:9,color:C.dim,textAlign:"center",marginBottom:8}}>
+                  {idx===0?"Current assignment":"Previous assignment"}
+                  {a.start?` \u00b7 ${fmtShipDate(a.start)}${a.end&&a.end!==a.start?` to ${fmtShipDate(a.end)}`:""}`:""}
+                  {a.count?` \u00b7 ${a.count} ${a.count===1?"voyage":"voyages"}`:""}
+                  {runs.length>1?` \u00b7 ${idx+1}/${runs.length}`:""}
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0"}}><span style={{color:C.dim}}>Sold</span><b style={{color:C.text}}>{intFmtK(a.sales)}</b></div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0"}}><span style={{color:C.dim}}>Target</span><b style={{color:C.text}}>{intFmtK(a.budget)}</b></div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:14,padding:"8px 0 0",borderTop:`1px solid ${C.border}`,marginTop:4}}><span style={{color:C.textSec,fontWeight:600}}>Gap to budget</span><b style={{color:a.variance>=0?C.green:C.red}}>{a.variance>=0?"+":""}{intFmtK(a.variance)}</b></div>
+              </>);
+            })()}
           </Card>
           <Card accentColor={C.teal} style={{padding:20}}>
             <div style={sec}>Budget Variance · {c.mtd.month}</div>
@@ -1375,7 +1479,7 @@ function ADPInner(){
         <div style={sec}>Monthly Performance</div>
         <div style={{overflowX:"auto",maxHeight:360,overflowY:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:560}}>
           <thead><tr style={{borderBottom:`2px solid ${C.border}`,position:"sticky",top:0,background:C.card}}>{["Month","MTD $ Sales","Budget Sales Gap","Sales Vs Budget","AUR","Transactions","Units","UPT","Voyage Share"].map(h=>(<th key={h} style={{padding:"8px 6px",textAlign:"right",fontSize:9,letterSpacing:1,color:C.dim,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>))}</tr></thead>
-          <tbody>{MONTHS.map((m,mi)=>{const md=c.monthly[m];if(!md)return null;const isLast=MONTHS.filter(x=>c.monthly[x]).pop()===m;const fullMonth=MONTH_NAMES[intMonths.indexOf(m)]||m;const isPartial=isLast&&m===estMonthAbbr;const label=isPartial?`${fullMonth} MTD`:fullMonth;const gap=md.gap||0;return(<tr key={m} style={{borderBottom:`1px solid ${C.border}`}}><td style={{padding:"8px 6px",fontWeight:700,color:isPartial?C.amber:C.textSec,whiteSpace:"nowrap"}}>{label}</td><td style={{padding:"8px 6px",textAlign:"right",color:metricColor(md.sdAvg,false),fontWeight:600}}>${md.sdAvg.toLocaleString()}</td><td style={{padding:"8px 6px",textAlign:"right",fontWeight:700,color:gap>=0?C.green:C.red}}>{gap>=0?"+":""}${Math.round(gap).toLocaleString()}</td><td style={{padding:"8px 6px",textAlign:"right",fontWeight:700,color:metricColor(md.sp)}}>{md.sp>0?"+":""}{md.sp.toFixed(1)}%</td><td style={{padding:"8px 6px",textAlign:"right",color:metricColor(md.aur,false)}}>${md.aur.toLocaleString()}</td><td style={{padding:"8px 6px",textAlign:"right",color:C.textSec}}>{md.trAvg}</td><td style={{padding:"8px 6px",textAlign:"right",color:C.textSec}}>{md.uAvg}</td><td style={{padding:"8px 6px",textAlign:"right",color:C.textSec}}>{md.upt.toFixed(2)}</td><td style={{padding:"8px 6px",textAlign:"right",color:metricColor(md.vs)}}>{md.vs.toFixed(1)}%</td></tr>);})}
+          <tbody>{MONTHS.map((m,mi)=>{const md=c.monthly[m];if(!md)return null;const isLast=MONTHS.filter(x=>c.monthly[x]).pop()===m;const fullMonth=MONTH_NAMES[intMonths.indexOf(m)]||m;const isPartial=isLast&&m===estMonthAbbr;const label=isPartial?`${fullMonth} MTD`:fullMonth;const gap=md.gap||0;return(<tr key={m} style={{borderBottom:`1px solid ${C.border}`}}><td style={{padding:"8px 6px",fontWeight:700,color:isPartial?C.amber:C.textSec,whiteSpace:"nowrap"}}>{label}</td><td style={{padding:"8px 6px",textAlign:"right",color:metricColor(md.sdTot!=null?md.sdTot:md.sdAvg,false),fontWeight:600}}>${Math.round(md.sdTot!=null?md.sdTot:(md.sdAvg||0)*(md.n||1)).toLocaleString()}</td><td style={{padding:"8px 6px",textAlign:"right",fontWeight:700,color:gap>=0?C.green:C.red}}>{gap>=0?"+":""}${Math.round(gap).toLocaleString()}</td><td style={{padding:"8px 6px",textAlign:"right",fontWeight:700,color:metricColor(md.sp)}}>{md.sp>0?"+":""}{md.sp.toFixed(1)}%</td><td style={{padding:"8px 6px",textAlign:"right",color:metricColor(md.aur,false)}}>${md.aur.toLocaleString()}</td><td style={{padding:"8px 6px",textAlign:"right",color:C.textSec}}>{md.trAvg}</td><td style={{padding:"8px 6px",textAlign:"right",color:C.textSec}}>{md.uAvg}</td><td style={{padding:"8px 6px",textAlign:"right",color:C.textSec}}>{md.upt.toFixed(2)}</td><td style={{padding:"8px 6px",textAlign:"right",color:metricColor(md.vs)}}>{md.vs.toFixed(1)}%</td></tr>);})}
             {(()=>{
               /* Summary row across every month shown. Built from the voyages
                  themselves using accumulated totals, so it is never an average
@@ -1393,8 +1497,8 @@ function ADPInner(){
               const vsAvg=vsRows.length?vsRows.reduce((a,w)=>a+w.vs,0)/vsRows.length:0;
               const cell={padding:"9px 6px",textAlign:"right",fontWeight:700};
               return(<tr style={{borderTop:`2px solid ${C.teal}`,background:C.tealPale}}>
-                <td style={{padding:"9px 6px",fontWeight:700,color:C.teal,whiteSpace:"nowrap"}}>{`Average (${n} voyages)`}</td>
-                <td style={{...cell,color:metricColor(Math.round(tSales/n),false)}}>${Math.round(tSales/n).toLocaleString()}</td>
+                <td style={{padding:"9px 6px",fontWeight:700,color:C.teal,whiteSpace:"nowrap"}}>{`Total / Average (${n} voyages)`}</td>
+                <td style={{...cell,color:metricColor(tSales,false)}}>${Math.round(tSales).toLocaleString()}</td>
                 <td style={{...cell,color:tGap>=0?C.green:C.red}}>{tGap>=0?"+":""}${Math.round(tGap).toLocaleString()}</td>
                 <td style={{...cell,color:metricColor(svb)}}>{svb>0?"+":""}{svb.toFixed(1)}%</td>
                 <td style={{...cell,color:metricColor(aurAll,false)}}>${aurAll.toLocaleString()}</td>
