@@ -1,114 +1,100 @@
-// Server-side Neon access + individual coach logins.
-// DATABASE_URL and SESSION_SECRET live ONLY here, never in the browser.
-import { neon } from "@neondatabase/serverless";
-import crypto from "crypto";
+/* ============================================================
+   COACHING DATA STORE  ·  session-enforced, key-scoped
+   ------------------------------------------------------------
+   Open reads are gone. Every action requires a valid session,
+   writes require coach or admin, export and global keys require
+   admin. Keys are validated against known application namespaces
+   so an authenticated user cannot write arbitrary rows.
+   ============================================================ */
+import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { requireSession, requireCoach, requireAdmin, audit } from "@/lib/auth";
 
-export const runtime = "nodejs"; // Buffer + crypto require the Node runtime
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-const sql = neon(process.env.DATABASE_URL);
-const SECRET = process.env.SESSION_SECRET || "change-me";
-
-// --- tiny signed-token helpers (no external dependency) ---
-function sign(payload) {
-  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  const mac = crypto.createHmac("sha256", SECRET).update(body).digest("base64url");
-  return body + "." + mac;
-}
-function verify(token) {
-  if (!token || typeof token !== "string" || token.indexOf(".") < 0) return null;
-  const [body, mac] = token.split(".");
-  const expect = crypto.createHmac("sha256", SECRET).update(body).digest("base64url");
-  // constant-time comparison prevents timing attacks on the signature
-  const a = Buffer.from(mac || "");
-  const b = Buffer.from(expect);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-  try {
-    const p = JSON.parse(Buffer.from(body, "base64url").toString());
-    if (p.exp && Date.now() > p.exp) return null; // expired
-    return p;
-  } catch { return null; }
-}
-
-const MAX_KEY_LEN = 200;
-const MAX_VALUE_CHARS = 2_000_000; // ~2 MB serialized cap protects the DB
-const validKey = (k) => typeof k === "string" && k.length > 0 && k.length <= MAX_KEY_LEN;
+import { keyClass, prefixAllowed, MAX_VALUE_CHARS } from "@/lib/storePolicy";
 
 export async function POST(req) {
   try {
+    if (!(req.headers.get("content-type") || "").includes("application/json")) {
+      return NextResponse.json({ error: "invalid_request" }, { status: 415 });
+    }
     const body = await req.json();
-    const { action, key, value, prefix, token, email, password } = body || {};
+    const { action, key, value, prefix } = body || {};
 
-    // --- LOGIN: verify against the coaches table, return a signed session token ---
-    if (action === "login") {
-      const em = String(email || "").trim().toLowerCase();
-      if (!em || typeof password !== "string" || !password) {
-        return Response.json({ ok: false, error: "email" }, { status: 401 });
-      }
-      const exists = await sql`select 1 from coaches where email = ${em} limit 1`;
-      if (!exists.length) return Response.json({ ok: false, error: "email" }, { status: 401 });
-      const rows = await sql`select * from verify_coach(${em}, ${password})`;
-      if (!rows.length) return Response.json({ ok: false, error: "password" }, { status: 401 });
-      const coach = rows[0];
-      const tok = sign({ email: coach.email, name: coach.name, is_admin: coach.is_admin, exp: Date.now() + 12 * 3600 * 1000 });
-      return Response.json({ ok: true, token: tok, name: coach.name, isAdmin: coach.is_admin });
-    }
-
-    // --- health check: confirms env vars + database connectivity ---
     if (action === "ping") {
-      await sql`select 1`;
-      return Response.json({ ok: true, db: true });
+      // Connectivity check for signed-in users only.
+      const guard = requireSession();
+      if (guard.error) return NextResponse.json({ ok: false }, { status: guard.status });
+      await db()`select 1`;
+      return NextResponse.json({ ok: true, db: true });
     }
 
-    // --- reads are open so the dashboard always displays ---
-    if (action === "get") {
-      if (!validKey(key)) return Response.json({ error: "bad key" }, { status: 400 });
-      const rows = await sql`select value from coaching_store where key = ${key} limit 1`;
-      return Response.json({ value: rows[0] ? rows[0].value : null });
-    }
-    if (action === "getPrefix") {
-      // Batch read: every key/value under a prefix in ONE query.
-      // Replaces per-candidate loops (98 round trips -> 1).
-      if (typeof prefix !== "string" || !prefix || prefix.length > 64) {
-        return Response.json({ error: "bad prefix" }, { status: 400 });
+    /* ---------- reads: authenticated ---------- */
+    if (action === "get" || action === "getPrefix" || action === "list") {
+      const guard = requireSession();
+      if (guard.error) return NextResponse.json({ error: guard.error }, { status: guard.status });
+      const sql = db();
+
+      if (action === "get") {
+        if (!keyClass(key)) return NextResponse.json({ error: "bad key" }, { status: 400 });
+        const rows = await sql`select value from coaching_store where key = ${key} limit 1`;
+        return NextResponse.json({ value: rows.length ? rows[0].value : null });
       }
-      const rows = await sql`select key, value from coaching_store where key like ${prefix + "%"}`;
-      return Response.json({ records: rows });
-    }
-    if (action === "list") {
+      if (action === "getPrefix") {
+        if (!prefixAllowed(prefix)) {
+          return NextResponse.json({ error: "bad prefix" }, { status: 400 });
+        }
+        const rows = await sql`select key, value from coaching_store where key like ${prefix + "%"}`;
+        return NextResponse.json({ records: rows });
+      }
       const rows = prefix
-        ? await sql`select key from coaching_store where key like ${String(prefix) + "%"}`
+        ? await sql`select key from coaching_store where key like ${String(prefix).slice(0, 64) + "%"}`
         : await sql`select key from coaching_store`;
-      return Response.json({ keys: rows.map((r) => r.key) });
-    }
-    if (action === "export") {
-      const rows = await sql`select key, value, updated_at, updated_by from coaching_store order by key`;
-      return Response.json({ exportedAt: new Date().toISOString(), count: rows.length, records: rows });
+      return NextResponse.json({ keys: rows.map((r) => r.key) });
     }
 
-    // --- WRITES require a valid session token; the coach's name is stamped on the row ---
+    /* ---------- export: admin only ---------- */
+    if (action === "export") {
+      const guard = requireAdmin();
+      if (guard.error) return NextResponse.json({ error: guard.error }, { status: guard.status });
+      const rows = await db()`
+        select key, value, updated_at, updated_by from coaching_store order by key`;
+      await audit("system.export", guard.session, "coaching_store", { count: rows.length });
+      return NextResponse.json({
+        exportedAt: new Date().toISOString(), count: rows.length, records: rows,
+      });
+    }
+
+    /* ---------- writes: coach or admin, key-scoped ---------- */
     if (action === "set") {
-      const session = verify(token);
-      if (!session) return Response.json({ ok: false, error: "Please log in" }, { status: 401 });
-      if (!validKey(key)) return Response.json({ ok: false, error: "bad key" }, { status: 400 });
+      const cls = keyClass(key);
+      if (!cls) return NextResponse.json({ error: "bad key" }, { status: 400 });
+      const guard = cls === "admin" ? requireAdmin() : requireCoach();
+      if (guard.error) return NextResponse.json({ error: guard.error }, { status: guard.status });
+
       let serialized;
       try { serialized = JSON.stringify(value); } catch { serialized = null; }
       if (serialized == null || serialized.length > MAX_VALUE_CHARS) {
-        return Response.json({ ok: false, error: "value too large" }, { status: 413 });
+        return NextResponse.json({ error: "value too large" }, { status: 413 });
       }
-      // Always send pre-serialized JSON with an explicit ::jsonb cast.
-      // The driver otherwise mis-types plain strings and JS arrays, which
-      // made writes of journeys (arrays) and the refresh date (string) fail.
-      await sql`
+      await db()`
         insert into coaching_store (key, value, updated_by)
-        values (${key}, ${serialized}::jsonb, ${session.name})
-        on conflict (key) do update set value = excluded.value, updated_by = excluded.updated_by`;
-      return Response.json({ ok: true });
+        values (${key}, ${serialized}::jsonb, ${guard.session.name})
+        on conflict (key) do update
+          set value = excluded.value, updated_by = excluded.updated_by`;
+      // Coaching-relevant writes are audited; routine cache keys are not noisy.
+      if (key.startsWith("spine:")) await audit("coaching.entry.saved", guard.session, key, {});
+      else if (key === "group_dev_v1") await audit("group.updated", guard.session, key, {});
+      else if (key === "status_overrides") await audit("status.override", guard.session, key, {});
+      else if (key === "dev_meta") await audit("development.status.changed", guard.session, key, {});
+      return NextResponse.json({ ok: true });
     }
 
-    return Response.json({ error: "unknown action" }, { status: 400 });
+    return NextResponse.json({ error: "unknown action" }, { status: 400 });
   } catch (e) {
-    // Log full detail server-side; never leak infrastructure errors to the browser.
     console.error("store route error:", e);
-    return Response.json({ error: "server error" }, { status: 500 });
+    return NextResponse.json({ error: "server_error" }, { status: 500 });
   }
 }

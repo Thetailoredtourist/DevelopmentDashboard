@@ -1,117 +1,124 @@
-# EFFY Ambassador Dashboard — Web App
+# EFFY Ambassador Intelligence System · V2 Deployment
 
-A Next.js app version of the Ambassador Command Center. Runs in any modern
-browser on desktop and mobile, with the Anthropic API key kept server-side.
+Next.js 14 (App Router) + Neon Postgres, deployed on Vercel.
 
----
-
-## What you need
-
-- Node.js 18.18 or newer (you already have Node installed; check with `node -v`)
-- An Anthropic API key from https://console.anthropic.com (only needed for the
-  AI coaching and the Development Lab; the rest of the dashboard runs without it)
+V2 turns the dashboard into a five-layer system: performance intelligence,
+ambassador development, coaching intervention tracking, historical performance
+measurement, and organizational learning.
 
 ---
 
-## First-time setup (about 2 minutes)
+## 1. Environment variables
 
-1. Open a terminal in this folder (the folder that contains `package.json`).
+| Variable | Required | Purpose |
+|---|---|---|
+| `DATABASE_URL` | Yes | Neon Postgres connection string. Server-side only. |
+| `SESSION_SECRET` | Yes in production | Signs the HttpOnly session cookie. The app refuses to start a session in production without it. No fallback value exists. |
+| `AI_PROVIDER` | No | `groq` (default) or `google`. |
+| `GROQ_API_KEY` | If using Groq | Server-side only. |
+| `GOOGLE_AI_API_KEY` | If using Gemini | Server-side only. |
 
-2. Install the dependencies:
+Never commit real values. `.env.example` documents the shape only.
 
-   ```
-   npm install
-   ```
+## 2. Database migration
 
-3. Create a file named `.env.local` in this same folder (copy `.env.example`
-   to `.env.local`) and paste in your free Groq key:
-
-   ```
-   GROQ_API_KEY=gsk_your_real_key_here
-   ```
-
-   That is all you need. The AI coaching uses Groq by default (fast, free).
-
-   Optional fallback: if you ever want to switch to Google AI Studio, get a
-   free key at https://aistudio.google.com/app/apikey, add it as
-   `GOOGLE_AI_API_KEY=...`, and change one line in
-   `app/api/coaching/route.js`: set `const PROVIDER = "google";`
-
----
-
-## Run it on your computer
+Run the migration once in the Neon SQL editor:
 
 ```
+migrations/001_v2_core.sql
+```
+
+It is additive and preserves existing `coaching_store` and `coaches` data.
+It adds: the `role` column (backfilled from `is_admin`), `dataset_snapshots`,
+`audit_log`, `usage_events`, and `coaching_interventions`, plus indexes.
+Nothing is dropped. Do not run destructive migrations automatically.
+
+## 3. User roles
+
+| Role | Can do |
+|---|---|
+| `viewer` | View authorized performance, coaching and development information. No modifications. |
+| `coach` | Everything a viewer can do, plus record field observations, role-play assessments, coaching journeys, group development, and generate AI coaching. |
+| `admin` | Everything a coach can do, plus Excel dataset refresh, dataset changes, system export, and administrative actions. |
+
+Add or update accounts:
+
+```sql
+select add_coach('name@effy.com','Full Name','StrongPassword', true);            -- admin
+select add_coach('coach@effy.com','Coach Name','StrongPassword', false);         -- coach
+select add_coach('viewer@effy.com','Viewer Name','StrongPassword', false,'viewer');
+```
+
+Passwords are hashed with pgcrypto. Authorization is enforced on the server for
+every protected action, never by hiding buttons.
+
+## 4. Dataset refresh and snapshots
+
+An admin uploads the weekly Excel file from the dashboard banner. On success:
+
+1. the parsed dataset is saved as the live dataset for fast loading;
+2. an immutable row is written to `dataset_snapshots`, stamped with the actual
+   server timestamp, the uploader, and the source filename;
+3. audit events are recorded.
+
+Snapshots are never overwritten. Period-over-period movement is calculated by
+comparing the two most recent real snapshots, labelled **Since Previous
+Refresh**. With only one snapshot the interface states that historical
+comparison is not yet available rather than fabricating movement.
+
+## 5. Security model
+
+- Sessions are HttpOnly, SameSite=Lax, Secure in production, path `/`, 12 hours.
+  The signed value is never readable from JavaScript.
+- The ambassador roster and performance dataset are **not** bundled into client
+  JavaScript. They load from `/api/dataset` only after authentication.
+- Every store action requires a session. Export and dataset refresh require
+  admin. Coaching writes require coach or admin.
+- Store keys are validated against known namespaces (`spine:`, `fb:`, `rp:`,
+  and named application keys). Global keys require admin.
+- AI generation requires coach or admin, clamps output tokens server-side,
+  limits body and prompt size, times out, and is rate limited in the database.
+- Login is rate limited per email plus IP in `usage_events`. Plaintext passwords
+  are never logged.
+- All SQL is parameterized.
+
+## 6. Business rules
+
+All rules live in `lib/performanceRules.js`. Do not redefine them elsewhere.
+
+- Contract gap: `CONTRACT_GAP_VOYAGES = 5`
+- Greyout gap: `GREYOUT_GAP_VOYAGES = 4`
+- Reporting timezone: `America/New_York`, displayed as **ET** (handles EST and
+  EDT automatically; no fixed UTC offsets anywhere)
+- Performance week: Monday to Sunday
+- Non-revenue threshold: `-99`
+- All twelve months are supported. No six-month limits exist.
+
+KPI definitions, single-sourced and unit tested:
+
+- Sales vs Budget = accumulated sales / accumulated budget (never an average of
+  percentages). Zero-budget voyages are excluded and cannot corrupt it.
+- AUR = total sales / total units
+- ATV = total sales / total transactions
+- UPT = total units / total transactions
+- Budget Sales Gap = sales - budget
+- Sales and Avg / Voyage are reported as separate measures; an average is never
+  labelled as a total.
+
+## 7. Local development
+
+```bash
+npm install
+npm test          # node --test, no extra dependency
+npm run build
 npm run dev
 ```
 
-Then open http://localhost:3000 in your browser. The dashboard loads with the
-current data. Leave the terminal window open while you use it; closing it stops
-the app.
+`dev-fixtures/sample-dataset.json` holds a sample roster for local work. It is a
+development fixture only and is never imported by client code, so it cannot
+reach the production bundle.
 
-To stop the app, press Ctrl+C in the terminal.
+## 8. Adding a cruise line
 
----
-
-## Run the production build (faster, for everyday use)
-
-```
-npm run build
-npm run start
-```
-
-Then open http://localhost:3000. This is the optimized version.
-
----
-
-## Admin lock on the data refresh
-
-The data-refresh button (the icon under the EFFY logo) is locked. Other users
-see a padlock and cannot load a new file. Only you, after entering the admin
-password, can upload a fresh Excel export.
-
-- Default password: `EffyAdmin2026`
-- To change it: open `components/Dashboard.jsx`, edit the line
-  `const ADMIN_PASSWORD = "EffyAdmin2026";` near the top, then rebuild
-  (`npm run build`).
-- The unlock lasts until you refresh or close the browser tab, then it locks
-  again. This is a convenience gate to prevent accidental or casual refreshes,
-  not bank-grade security.
-
-## Updating the data each Tuesday
-
-Click the circular refresh icon (top right, under the EFFY logo) and choose your
-latest `Ambassador_Stats.xlsx` export. The dashboard re-reads the file in the
-browser, applies the contract-reset and current-week logic, and refreshes every
-view. Nothing is uploaded to a server; the file is parsed locally.
-
-The bundled `candidate-data.json` is the starting snapshot. To change the data
-the app loads on first open, replace that file with a fresh export-derived JSON.
-
----
-
-## Putting it online (optional)
-
-The easiest host is Vercel (made by the Next.js team):
-
-1. Push this folder to a private GitHub repository.
-2. Go to https://vercel.com, "Add New Project", and import the repository.
-3. In the project settings, add an Environment Variable:
-   `GROQ_API_KEY` = your key (and optionally `GOOGLE_AI_API_KEY`).
-4. Deploy. Vercel gives you a private URL you can open on any device.
-
-Any host that runs Next.js 14 works the same way. Keep the API key in the host's
-environment variables, never in the code.
-
-Note: Vercel free Hobby tier is for non-commercial use; for a company tool, the Pro tier or running it on an internal machine keeps you fully compliant.
-
----
-
-## Notes
-
-- The "Download PDF" button on a profile generates a real PDF and opens your
-  device's save dialog (Files, cloud, or desktop).
-- The mobile view is the phone icon at the top-left of the header.
-- Coaching notes and reviews are stored in your browser (localStorage) on the
-  device you use them on; they are not shared between devices.
-- Adding a new cruise line is covered in ADDING_A_CRUISE_LINE.md.
+See `ADDING_A_CRUISE_LINE.md`. Cruise lines are derived from the Excel sheets at
+parse time, so a new line appears automatically with a fallback palette.
