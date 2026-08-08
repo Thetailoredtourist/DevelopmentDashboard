@@ -360,8 +360,15 @@ const __storeInflight=new Map();
 const STORE_TTL=60000;
 // The session is an HttpOnly cookie: the browser attaches it automatically and
 // JavaScript can never read it. Nothing auth-related is kept in client state.
-const apiPost=(payload)=>fetch("/api/store",{method:"POST",credentials:"same-origin",
-  headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+let __authed=false;// set once the server confirms a session
+const setStoreAuthed=(v)=>{__authed=v;};
+const apiPost=async(payload)=>{
+  // Protected reads require a session. Skipping them while signed out keeps the
+  // console clean and avoids pointless 401 round trips.
+  if(!__authed)return{ok:false,status:401,json:async()=>({})};
+  return fetch("/api/store",{method:"POST",credentials:"same-origin",
+    headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+};
 const storage={
   async get(k){
     const hit=__storeCache.get(k);
@@ -969,8 +976,28 @@ const getESTNow=()=>getETNow();// V2: America/New_York, DST-correct (see lib/dat
 const MONTH_NAMES=["January","February","March","April","May","June","July","August","September","October","November","December"];
 
 /* ═══ MAIN COMPONENT ═══ */
-export default function ADP(){
-  const[tab,setTab]=useState("command");const[selected,setSelected]=useState(null);
+class DashboardBoundary extends Component{
+  constructor(p){super(p);this.state={err:null,info:null};}
+  static getDerivedStateFromError(err){return{err};}
+  componentDidCatch(err,info){
+    this.setState({info});
+    console.error("Dashboard error:",err&&err.message,err&&err.stack,info&&info.componentStack);
+  }
+  render(){
+    if(!this.state.err)return this.props.children;
+    return(<div style={{padding:24,fontFamily:"'DM Sans',sans-serif",color:"#1a1a1a"}}>
+      <div style={{fontSize:16,fontWeight:700,marginBottom:8}}>The dashboard hit an error</div>
+      <div style={{fontSize:12,marginBottom:12}}>{String(this.state.err&&this.state.err.message||this.state.err)}</div>
+      <button onClick={()=>{this.setState({err:null,info:null});}} style={{background:"#0F766E",border:"none",color:"#fff",fontSize:12,fontWeight:700,padding:"8px 16px",borderRadius:7,cursor:"pointer"}}>Try again</button>
+      <div style={{marginTop:14,fontSize:10,whiteSpace:"pre-wrap",color:"#666",maxHeight:260,overflow:"auto"}}>{this.state.info&&this.state.info.componentStack}</div>
+    </div>);
+  }
+}
+
+function ADPInner(){
+  const[tab,setTab]=useState("command");
+  const GUEST_TABS=["command","performance","analytics"];
+  const requestTab=(id)=>{if(!coach&&!GUEST_TABS.includes(id)){setLoginErr("");setShowPwPrompt(true);return;}setTab(id);};const[selected,setSelected]=useState(null);
   const[profileOrigin,setProfileOrigin]=useState("coaching");// tab a profile was opened from
   const[search,setSearch]=useState("");const[tierFilter,setTierFilter]=useState("all");
   const[sortKey,setSortKey]=useState("sp");const[sortDir,setSortDir]=useState("desc");
@@ -1015,16 +1042,24 @@ export default function ADP(){
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({dataset:{candidates:parsed.candidates,fleetMax:parsed.fleetMax||null},
                              sourceFilename:file.name||""})});
-      const d=await r.json();
-      if(!r.ok||!d||!d.ok){
-        alert(r.status===403
-          ? "Metrics loaded on this screen only. Refreshing the shared dataset requires an admin account."
-          : "Metrics loaded on this screen, but the shared dataset could not be saved. Other coaches will still see the previous data.");
-      }else{
+      const d=await r.json().catch(()=>null);
+      if(r.ok&&d&&d.ok){
         const stamp=new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
         setLastRefreshed(stamp);
         try{await storage.set("last_refreshed",JSON.stringify(stamp));}catch{}
         storage.clearCache();
+        if(d.snapshotError==="migration_required"){
+          alert("Shared dataset updated: every coach will see these metrics.\n\nHistory was not captured. Run migrations/001_v2_core.sql in Neon to enable period-over-period comparison.");
+        }
+      }else if(r.status===403){
+        alert("Metrics loaded on this screen only. Refreshing the shared dataset requires an admin account.");
+      }else if(r.status===401){
+        alert("Your session has expired. Sign in again, then refresh.");
+        setShowPwPrompt(true);
+      }else if(d&&d.error==="migration_required"){
+        alert(d.message||"The V2 database migration has not been run yet.");
+      }else{
+        alert("Metrics loaded on this screen, but the shared dataset could not be saved. Other coaches will still see the previous data.");
       }
     }catch(e){
       alert("Metrics loaded on this screen, but the shared dataset could not be saved.");
@@ -1111,6 +1146,7 @@ export default function ADP(){
         body:JSON.stringify({email:loginEmail,password:loginPass})});
       const d=await r.json();
       if(r.ok&&d&&d.ok){
+        setStoreAuthed(true);
         setCoach({name:d.name,isAdmin:d.isAdmin,role:d.role});
         setIsAdmin(!!d.isAdmin);setRole(d.role||"coach");setIsGuest(false);
         setShowPwPrompt(false);setLoginPass("");setShowPw(false);
@@ -1125,7 +1161,7 @@ export default function ADP(){
     setLoginBusy(false);};
   const doLogout=async()=>{
     try{await fetch("/api/auth/logout",{method:"POST",credentials:"same-origin"});}catch{}
-    setCoach(null);setIsAdmin(false);setRole("viewer");setIsGuest(false);
+    setStoreAuthed(false);setCoach(null);setIsAdmin(false);setRole("viewer");setIsGuest(false);
     setCandidateData([]);storage.clearCache();setShowPwPrompt(true);};
   
   const[showPwPrompt,setShowPwPrompt]=useState(false);
@@ -1140,6 +1176,7 @@ export default function ADP(){
         const r=await fetch("/api/auth/session",{credentials:"same-origin"});
         const d=await r.json();
         if(d&&d.authenticated){
+          setStoreAuthed(true);
           setCoach({name:d.name,isAdmin:d.isAdmin,role:d.role});
           setIsAdmin(!!d.isAdmin);setRole(d.role||"viewer");
           await loadSharedDataset();
@@ -1149,8 +1186,10 @@ export default function ADP(){
           loadDevMeta().then(m=>setDevMeta(m));
           loadLedger().then(l=>setLedger(l));
         }else{
-          // No protected data is loaded until a session exists.
-          setShowPwPrompt(true);
+          // Guest view: current performance data loads without an account.
+          // Coaching data and every write still require signing in.
+          setRole("guest");
+          await loadSharedDataset();
         }
       }catch(e){setShowPwPrompt(true);}
     })();
@@ -1245,7 +1284,7 @@ export default function ADP(){
 
   const sec={fontSize:10,letterSpacing:2,color:C.teal,fontWeight:700,marginBottom:12,textTransform:"uppercase"};
   const tabs=[{id:"command",label:"Overview"},{id:"roster",label:"Performance"},{id:"coaching",label:"Analytics"},{id:"pipeline",label:"Development"}];
-  const MONTHS=["Jan","Feb","Mar","Apr","May","Jun"];
+  const MONTHS=intMonths;// all twelve, in calendar order; rows render only for months that hold data
 
   /* ═══ MTD calc for roster ═══ */
   // Weekly comparisons use the last two COMPLETE Mon-Sun weeks (dashboard refreshes Tuesdays,
@@ -1336,7 +1375,36 @@ export default function ADP(){
         <div style={sec}>Monthly Performance</div>
         <div style={{overflowX:"auto",maxHeight:360,overflowY:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:560}}>
           <thead><tr style={{borderBottom:`2px solid ${C.border}`,position:"sticky",top:0,background:C.card}}>{["Month","MTD $ Sales","Budget Sales Gap","Sales Vs Budget","AUR","Transactions","Units","UPT","Voyage Share"].map(h=>(<th key={h} style={{padding:"8px 6px",textAlign:"right",fontSize:9,letterSpacing:1,color:C.dim,fontWeight:700,whiteSpace:"nowrap"}}>{h}</th>))}</tr></thead>
-          <tbody>{MONTHS.map((m,mi)=>{const md=c.monthly[m];if(!md)return null;const isLast=MONTHS.filter(x=>c.monthly[x]).pop()===m;const fullMonth={Jan:"January",Feb:"February",Mar:"March",Apr:"April",May:"May",Jun:"June"}[m]||m;const isPartial=isLast&&m===estMonthAbbr;const label=isPartial?`${fullMonth} MTD`:fullMonth;const gap=md.gap||0;return(<tr key={m} style={{borderBottom:`1px solid ${C.border}`}}><td style={{padding:"8px 6px",fontWeight:700,color:isPartial?C.amber:C.textSec,whiteSpace:"nowrap"}}>{label}</td><td style={{padding:"8px 6px",textAlign:"right",color:metricColor(md.sdAvg,false),fontWeight:600}}>${md.sdAvg.toLocaleString()}</td><td style={{padding:"8px 6px",textAlign:"right",fontWeight:700,color:gap>=0?C.green:C.red}}>{gap>=0?"+":""}${Math.round(gap).toLocaleString()}</td><td style={{padding:"8px 6px",textAlign:"right",fontWeight:700,color:metricColor(md.sp)}}>{md.sp>0?"+":""}{md.sp.toFixed(1)}%</td><td style={{padding:"8px 6px",textAlign:"right",color:metricColor(md.aur,false)}}>${md.aur.toLocaleString()}</td><td style={{padding:"8px 6px",textAlign:"right",color:C.textSec}}>{md.trAvg}</td><td style={{padding:"8px 6px",textAlign:"right",color:C.textSec}}>{md.uAvg}</td><td style={{padding:"8px 6px",textAlign:"right",color:C.textSec}}>{md.upt.toFixed(2)}</td><td style={{padding:"8px 6px",textAlign:"right",color:metricColor(md.vs)}}>{md.vs.toFixed(1)}%</td></tr>);})}</tbody>
+          <tbody>{MONTHS.map((m,mi)=>{const md=c.monthly[m];if(!md)return null;const isLast=MONTHS.filter(x=>c.monthly[x]).pop()===m;const fullMonth=MONTH_NAMES[intMonths.indexOf(m)]||m;const isPartial=isLast&&m===estMonthAbbr;const label=isPartial?`${fullMonth} MTD`:fullMonth;const gap=md.gap||0;return(<tr key={m} style={{borderBottom:`1px solid ${C.border}`}}><td style={{padding:"8px 6px",fontWeight:700,color:isPartial?C.amber:C.textSec,whiteSpace:"nowrap"}}>{label}</td><td style={{padding:"8px 6px",textAlign:"right",color:metricColor(md.sdAvg,false),fontWeight:600}}>${md.sdAvg.toLocaleString()}</td><td style={{padding:"8px 6px",textAlign:"right",fontWeight:700,color:gap>=0?C.green:C.red}}>{gap>=0?"+":""}${Math.round(gap).toLocaleString()}</td><td style={{padding:"8px 6px",textAlign:"right",fontWeight:700,color:metricColor(md.sp)}}>{md.sp>0?"+":""}{md.sp.toFixed(1)}%</td><td style={{padding:"8px 6px",textAlign:"right",color:metricColor(md.aur,false)}}>${md.aur.toLocaleString()}</td><td style={{padding:"8px 6px",textAlign:"right",color:C.textSec}}>{md.trAvg}</td><td style={{padding:"8px 6px",textAlign:"right",color:C.textSec}}>{md.uAvg}</td><td style={{padding:"8px 6px",textAlign:"right",color:C.textSec}}>{md.upt.toFixed(2)}</td><td style={{padding:"8px 6px",textAlign:"right",color:metricColor(md.vs)}}>{md.vs.toFixed(1)}%</td></tr>);})}
+            {(()=>{
+              /* Summary row across every month shown. Built from the voyages
+                 themselves using accumulated totals, so it is never an average
+                 of monthly averages. */
+              const rows=(c.weekly||[]).filter(w=>w&&!w.nb&&!w.nr);
+              if(!rows.length)return null;
+              const sum=(f)=>rows.reduce((a,w)=>a+(Number(w[f])||0),0);
+              const n=rows.length;
+              const tSales=sum("sd"),tUnits=sum("u"),tTrans=sum("tr"),tGap=sum("gap");
+              const tBudget=tSales-tGap;// gap = sales - budget
+              const svb=tBudget>0?((tSales-tBudget)/tBudget)*100:0;
+              const aurAll=tUnits>0?Math.round(tSales/tUnits):0;
+              const uptAll=tTrans>0?tUnits/tTrans:0;
+              const vsRows=rows.filter(w=>typeof w.vs==="number");
+              const vsAvg=vsRows.length?vsRows.reduce((a,w)=>a+w.vs,0)/vsRows.length:0;
+              const cell={padding:"9px 6px",textAlign:"right",fontWeight:700};
+              return(<tr style={{borderTop:`2px solid ${C.teal}`,background:C.tealPale}}>
+                <td style={{padding:"9px 6px",fontWeight:700,color:C.teal,whiteSpace:"nowrap"}}>{`Average (${n} voyages)`}</td>
+                <td style={{...cell,color:metricColor(Math.round(tSales/n),false)}}>${Math.round(tSales/n).toLocaleString()}</td>
+                <td style={{...cell,color:tGap>=0?C.green:C.red}}>{tGap>=0?"+":""}${Math.round(tGap).toLocaleString()}</td>
+                <td style={{...cell,color:metricColor(svb)}}>{svb>0?"+":""}{svb.toFixed(1)}%</td>
+                <td style={{...cell,color:metricColor(aurAll,false)}}>${aurAll.toLocaleString()}</td>
+                <td style={{...cell,color:C.textSec}}>{Math.round(tTrans/n)}</td>
+                <td style={{...cell,color:C.textSec}}>{Math.round(tUnits/n)}</td>
+                <td style={{...cell,color:C.textSec}}>{uptAll.toFixed(2)}</td>
+                <td style={{...cell,color:metricColor(vsAvg)}}>{vsAvg.toFixed(1)}%</td>
+              </tr>);
+            })()}
+          </tbody>
         </table></div>
         <div style={{marginTop:16,paddingTop:14,borderTop:`1px solid ${C.border}`}}>
           <div style={{fontSize:9,letterSpacing:1.5,color:C.dim,fontWeight:700,marginBottom:8}}>TRAJECTORY INDICATORS</div>
@@ -1574,7 +1642,7 @@ export default function ADP(){
 
     {/* Tabs */}
     <div style={{display:"flex",justifyContent:"center",gap:mv?4:14,background:"none",padding:"6px 16px 0",overflowX:"auto",position:"relative",zIndex:3}}>
-      {tabs.map(t=>(<button key={t.id} onClick={()=>{setTab(t.id);setSelected(null);setSearch("");setTierFilter("all");setGroupView(null);}} className="tab-link" style={{background:"none",border:"none",color:tab===t.id?C.teal:C.dim,fontSize:12,fontWeight:tab===t.id?700:600,padding:"12px 6px 8px",cursor:"pointer",borderBottom:tab===t.id?`2px solid ${C.teal}`:"2px solid transparent",fontFamily:"'DM Sans'",letterSpacing:0.4,whiteSpace:"nowrap",textShadow:tab===t.id?`0 0 14px ${C.teal}99`:"none",transition:"all 0.25s ease"}}>{t.label}</button>))}
+      {tabs.map(t=>(<button key={t.id} onClick={()=>{if(!coach&&!GUEST_TABS.includes(t.id)){setLoginErr("");setShowPwPrompt(true);return;}setTab(t.id);setSelected(null);setSearch("");setTierFilter("all");setGroupView(null);}} className="tab-link" style={{background:"none",border:"none",color:tab===t.id?C.teal:C.dim,fontSize:12,fontWeight:tab===t.id?700:600,padding:"12px 6px 8px",cursor:"pointer",borderBottom:tab===t.id?`2px solid ${C.teal}`:"2px solid transparent",fontFamily:"'DM Sans'",letterSpacing:0.4,whiteSpace:"nowrap",textShadow:tab===t.id?`0 0 14px ${C.teal}99`:"none",transition:"all 0.25s ease"}}>{t.label}</button>))}
     </div>
 
     <div style={{padding:mv?"14px 12px 40px":"20px 20px 40px",maxWidth:mv?"100%":1280,width:"100%",margin:"0 auto",transition:"max-width 0.35s ease"}}>
@@ -1714,3 +1782,5 @@ export default function ADP(){
     <div style={{textAlign:"center",padding:"16px",borderTop:`1px solid ${C.border}`,fontSize:9,color:C.muted,letterSpacing:2}}>AMBASSADOR DEVELOPMENT PROGRAM . EFFY JEWELRY</div>
   </div>);
 }
+
+export default function ADP(){return(<DashboardBoundary><ADPInner/></DashboardBoundary>);}

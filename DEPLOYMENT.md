@@ -15,6 +15,7 @@ measurement, and organizational learning.
 | `DATABASE_URL` | Yes | Neon Postgres connection string. Server-side only. |
 | `SESSION_SECRET` | Yes in production | Signs the HttpOnly session cookie. The app refuses to start a session in production without it. No fallback value exists. |
 | `AI_PROVIDER` | No | `groq` (default) or `google`. |
+| `GUEST_VIEW` | No | `on` (default) lets anyone with the URL see Overview, Performance and Analytics without signing in. Set to `off` to require a login for all data. |
 | `GROQ_API_KEY` | If using Groq | Server-side only. |
 | `GOOGLE_AI_API_KEY` | If using Gemini | Server-side only. |
 
@@ -66,7 +67,21 @@ comparing the two most recent real snapshots, labelled **Since Previous
 Refresh**. With only one snapshot the interface states that historical
 comparison is not yet available rather than fabricating movement.
 
-## 5. Security model
+## 5. Guest view
+
+With `GUEST_VIEW=on` (the default) an unauthenticated visitor can open the
+dashboard and see **Overview, Performance and Analytics** with the current live
+dataset. Opening **Development** prompts for sign-in.
+
+Guests can never: record coaching, edit anything, read coaching journeys, field
+notes, role-play notes or group development, view snapshot comparisons, refresh
+the dataset, export, or use AI coaching. Those all require a session server-side.
+
+Trade-off worth stating plainly: guest view means anyone with the URL can see
+ambassador performance figures. If that is not acceptable, set `GUEST_VIEW=off`
+and issue `viewer` accounts instead.
+
+## 6. Security model
 
 - Sessions are HttpOnly, SameSite=Lax, Secure in production, path `/`, 12 hours.
   The signed value is never readable from JavaScript.
@@ -82,7 +97,7 @@ comparison is not yet available rather than fabricating movement.
   are never logged.
 - All SQL is parameterized.
 
-## 6. Business rules
+## 7. Business rules
 
 All rules live in `lib/performanceRules.js`. Do not redefine them elsewhere.
 
@@ -105,7 +120,7 @@ KPI definitions, single-sourced and unit tested:
 - Sales and Avg / Voyage are reported as separate measures; an average is never
   labelled as a total.
 
-## 7. Local development
+## 8. Local development
 
 ```bash
 npm install
@@ -118,7 +133,7 @@ npm run dev
 development fixture only and is never imported by client code, so it cannot
 reach the production bundle.
 
-## 8. Adding a cruise line
+## 9. Adding a cruise line
 
 See `ADDING_A_CRUISE_LINE.md`. Cruise lines are derived from the Excel sheets at
 parse time, so a new line appears automatically with a fallback palette.
