@@ -18,6 +18,10 @@ measurement, and organizational learning.
 | `GUEST_VIEW` | No | `on` (default) lets anyone with the URL see Overview, Performance and Analytics without signing in. Set to `off` to require a login for all data. |
 | `GROQ_API_KEY` | If using Groq | Server-side only. |
 | `GOOGLE_AI_API_KEY` | If using Gemini | Server-side only. |
+| `GROQ_MODEL` | No | Overrides the Groq model without a code change. Default `openai/gpt-oss-120b`. |
+| `GROQ_MODEL_FALLBACK` | No | Used automatically if the primary is retired or rate limited. Default `openai/gpt-oss-20b`. |
+| `GOOGLE_MODEL` | No | Default `gemini-2.5-flash`. |
+| `GOOGLE_MODEL_FALLBACK` | No | Default `gemini-2.5-flash-lite`. |
 
 Never commit real values. `.env.example` documents the shape only.
 
@@ -67,7 +71,30 @@ comparing the two most recent real snapshots, labelled **Since Previous
 Refresh**. With only one snapshot the interface states that historical
 comparison is not yet available rather than fabricating movement.
 
-## 5. Guest view
+## 5. AI usage and cost control
+
+Model names are set by environment variable, so a provider deprecation is a
+Vercel change rather than a release. Both providers fall back automatically to a
+smaller model if the primary returns "not found", "decommissioned" or a rate
+limit, so a retirement degrades service instead of breaking it.
+
+Cost controls, which matter as the coach base grows:
+
+- **Response cache** (`ai_cache`): an identical request within six hours returns
+  the stored answer and spends nothing. Re-opening the same profile is free.
+- **Per-purpose output caps**: coaching 1,100 tokens, group 1,100, curriculum
+  modules 1,600, debrief 800, with a hard ceiling of 2,500. The browser cannot
+  raise these.
+- **Per-user rate limit**: 60 AI calls per hour per coach, tracked in the
+  database so it holds across serverless instances.
+- **Audit trail**: every generation records the provider, output cap and
+  approximate prompt size, and cache hits are logged separately, so real usage
+  can be measured rather than guessed.
+
+Run `migrations/002_ai_cache.sql` to enable the cache. Without it the app still
+works; it simply spends tokens on repeat requests.
+
+## 6. Guest view
 
 With `GUEST_VIEW=on` (the default) an unauthenticated visitor can open the
 dashboard and see **Overview, Performance and Analytics** with the current live
@@ -81,7 +108,7 @@ Trade-off worth stating plainly: guest view means anyone with the URL can see
 ambassador performance figures. If that is not acceptable, set `GUEST_VIEW=off`
 and issue `viewer` accounts instead.
 
-## 6. Security model
+## 7. Security model
 
 - Sessions are HttpOnly, SameSite=Lax, Secure in production, path `/`, 12 hours.
   The signed value is never readable from JavaScript.
@@ -97,7 +124,7 @@ and issue `viewer` accounts instead.
   are never logged.
 - All SQL is parameterized.
 
-## 7. Business rules
+## 8. Business rules
 
 All rules live in `lib/performanceRules.js`. Do not redefine them elsewhere.
 
@@ -120,7 +147,7 @@ KPI definitions, single-sourced and unit tested:
 - Sales and Avg / Voyage are reported as separate measures; an average is never
   labelled as a total.
 
-## 8. Local development
+## 9. Local development
 
 ```bash
 npm install
@@ -133,7 +160,7 @@ npm run dev
 development fixture only and is never imported by client code, so it cannot
 reach the production bundle.
 
-## 9. Adding a cruise line
+## 10. Adding a cruise line
 
 See `ADDING_A_CRUISE_LINE.md`. Cruise lines are derived from the Excel sheets at
 parse time, so a new line appears automatically with a fallback palette.

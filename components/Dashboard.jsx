@@ -637,7 +637,7 @@ RULES:
 . Coach on a monthly cycle for rapid development inside a six-month contract. Ground your read in the most recent month's per-voyage performance and the change from the prior month.
 . The Ambassador represents luxury before product: presence before pitch, trust before transaction, meaning before price.`;
   try{
-    const r=await fetch("/api/coaching",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({max_tokens:1500,messages:[{role:"user",content:prompt}]})});
+    const r=await fetch("/api/coaching",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({purpose:"coaching",messages:[{role:"user",content:prompt}]})});
     const d=await r.json().catch(()=>({}));
     if(!r.ok||(d&&d.error)){return{ok:false,text:"Coaching service error: "+((d&&d.error)||("HTTP "+r.status))+". Check that the coaching API key is configured.",focus:"",directive:"",phase:"",rootCause:"",drill:"",question:""};}
     const text=d.content?.map(i=>i&&i.text?i.text:"").filter(Boolean).join("\n")||"";
@@ -916,7 +916,7 @@ For EACH module heading that the coaching signals or metrics justify, write ONE 
 
 Rules: No em dashes. Plain EFFY shop-floor language using the playbook's own terms. Ground every entry in the actual signals above. Return between 3 and 5 entries. JSON array only.`;
     try{
-      const res=await fetch("/api/coaching",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({max_tokens:2000,messages:[{role:"user",content:prompt}]})});
+      const res=await fetch("/api/coaching",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({purpose:"modules",messages:[{role:"user",content:prompt}]})});
       const d=await res.json();
       let text=d.content?.map(i=>i.type==="text"?i.text:"").filter(Boolean).join("\n")||"";
       text=text.replace(/```json/g,"").replace(/```/g,"").trim();
@@ -1085,7 +1085,7 @@ function ADPInner(){
   const[fleetMaxData,setFleetMaxData]=useState(typeof FLEET_MAX_SALES!=="undefined"?FLEET_MAX_SALES:{});
   const orgs=useMemo(()=>buildOrgs(candidateData),[candidateData]);
   const fileInputRef=useRef(null);
-  const handleRefreshFile=async(e)=>{const file=e.target.files&&e.target.files[0];if(!file){return;}const nm=(file.name||"").toLowerCase();if(!nm.endsWith(".xlsx")&&!nm.endsWith(".xls")){setRefreshInfo("");alert("Please upload an Excel file (.xlsx). That file type was not recognized.");e.target.value="";return;}setRefreshInfo("Reading "+file.name+" ...");try{const parsed=await parseExcelFile(file);if(parsed&&Array.isArray(parsed.candidates)&&parsed.candidates.length){const prevCount=candidateData.length;setCandidateData(parsed.candidates);if(parsed.fleetMax)setFleetMaxData(parsed.fleetMax);const d=new Date();const refStamp=d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});setLastRefreshed(refStamp);try{await storage.set("last_refreshed",JSON.stringify(refStamp));}catch{}let latest="";for(const c of parsed.candidates){const md=lastMetricDate(c);if(md&&md>latest)latest=md;}const moves=parsed.candidates.filter(c=>c.shipMove).length;const orgN=new Set(parsed.candidates.map(c=>c.org)).size;const delta=parsed.candidates.length-prevCount;setRefreshInfo(parsed.candidates.length+" candidates"+(delta?" ("+(delta>0?"+":"")+delta+")":"")+" across "+orgN+" lines"+(latest?", through "+new Date(latest+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}):"")+(moves?", "+moves+" ship moves":""));setDataVersion(v=>v+1);
+  const handleRefreshFile=async(e)=>{const file=e.target.files&&e.target.files[0];if(!file){return;}const nm=(file.name||"").toLowerCase();if(!nm.endsWith(".xlsx")&&!nm.endsWith(".xls")){setRefreshInfo("");alert("Please upload an Excel file (.xlsx). That file type was not recognized.");e.target.value="";return;}setRefreshInfo("Reading "+file.name+" ...");try{const parsed=await parseExcelFile(file);if(parsed&&Array.isArray(parsed.candidates)&&parsed.candidates.length){const prevCount=candidateData.length;setCandidateData(parsed.candidates);if(parsed.fleetMax)setFleetMaxData(parsed.fleetMax);const d=new Date();const refStamp=d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});let latest="";for(const c of parsed.candidates){const md=lastMetricDate(c);if(md&&md>latest)latest=md;}const moves=parsed.candidates.filter(c=>c.shipMove).length;const orgN=new Set(parsed.candidates.map(c=>c.org)).size;const delta=parsed.candidates.length-prevCount;setRefreshInfo(parsed.candidates.length+" candidates"+(delta?" ("+(delta>0?"+":"")+delta+")":"")+" across "+orgN+" lines"+(latest?", through "+new Date(latest+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}):"")+(moves?", "+moves+" ship moves":""));setDataVersion(v=>v+1);
     try{
       const plist=await loadProspects();
       if(plist.length){
@@ -1118,25 +1118,31 @@ function ADPInner(){
                              sourceFilename:file.name||""})});
       const d=await r.json().catch(()=>null);
       if(r.ok&&d&&d.ok){
-        const stamp=new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
-        setLastRefreshed(stamp);
-        try{await storage.set("last_refreshed",JSON.stringify(stamp));}catch{}
+        setLastRefreshed(refStamp);
+        const savedStamp=await storage.set("last_refreshed",JSON.stringify(refStamp));
         storage.clearCache();
+        if(!savedStamp)console.warn("Refresh date could not be stored.");
+        setRefreshInfo(pi=>(pi||"")+" \u00b7 saved for all coaches");
         if(d.snapshotError==="migration_required"){
           alert("Shared dataset updated: every coach will see these metrics.\n\nHistory was not captured. Run migrations/001_v2_core.sql in Neon to enable period-over-period comparison.");
         }
       }else if(r.status===403){
-        alert("Metrics loaded on this screen only. Refreshing the shared dataset requires an admin account.");
+        setRefreshInfo("Not saved: admin account required");
+        alert("Metrics loaded on this screen only, and were NOT saved.\n\nRefreshing the shared dataset requires an admin account. Reopening the dashboard will show the previous data.");
       }else if(r.status===401){
-        alert("Your session has expired. Sign in again, then refresh.");
+        setRefreshInfo("Not saved: session expired");
+        alert("Your session has expired, so the upload was NOT saved. Sign in again, then refresh.");
         setShowPwPrompt(true);
       }else if(d&&d.error==="migration_required"){
+        setRefreshInfo("Saved, but history not captured");
         alert(d.message||"The V2 database migration has not been run yet.");
       }else{
-        alert("Metrics loaded on this screen, but the shared dataset could not be saved. Other coaches will still see the previous data.");
+        setRefreshInfo("Not saved: see message");
+        alert("Metrics loaded on this screen, but the shared dataset was NOT saved. Other coaches, and this window when reopened, will still show the previous data.");
       }
     }catch(e){
-      alert("Metrics loaded on this screen, but the shared dataset could not be saved.");
+      setRefreshInfo("Not saved: connection problem");
+      alert("Metrics loaded on this screen, but the shared dataset was NOT saved. Reopening the dashboard will show the previous data.");
     }
     setActiveOrg(0);setSelected(null);setGroupView&&setGroupView(null);setTierFilter&&setTierFilter("all");setSearch&&setSearch("");}else{setRefreshInfo("");alert("No candidate rows were found in that file. Check that it has the RCI, CCL, NCL, or PCL sheets in the usual pivot layout.");}}catch(err){console.error("Refresh failed:",err);alert("Could not read that file. Make sure it is the Ambassador Stats export.");}e.target.value="";};
   const[lastRefreshed,setLastRefreshed]=useState("Jun 18, 2026");const[refreshInfo,setRefreshInfo]=useState("");
